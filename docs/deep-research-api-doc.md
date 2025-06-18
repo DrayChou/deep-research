@@ -302,7 +302,7 @@ fetchEventSource("/api/sse", {
     thinkingModel: "gemini-2.0-flash-thinking-exp",
     taskModel: "gemini-2.0-flash-exp",
     searchProvider: "model",
-    language: "en-US",
+    language: "zh-CN",
     maxResult: 5,
     enableCitationImage: true,
     enableReferences: true,

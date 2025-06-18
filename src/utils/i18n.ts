@@ -21,7 +21,8 @@ export function detectLanguage() {
   const languageDetector = new LanguageDetector();
   languageDetector.init();
   const detectedLang = languageDetector.detect();
-  let lang: string = "en-US";
+  const defaultLang = process.env.NEXT_PUBLIC_DEFAULT_LANGUAGE || "zh-CN";
+  let lang: string = defaultLang;
   const localeLang = keys(locales);
   if (Array.isArray(detectedLang)) {
     detectedLang.reverse().forEach((langCode) => {
@@ -43,10 +44,9 @@ i18next
     resourcesToBackend(async (lang: string) => {
       return await import(`../locales/${normalizeLocale(lang)}.json`);
     })
-  )
-  .init({
+  )  .init({
     supportedLngs: keys(locales),
-    fallbackLng: "en-US",
+    fallbackLng: process.env.NEXT_PUBLIC_DEFAULT_LANGUAGE || "zh-CN",
   });
 
 export default i18next;
