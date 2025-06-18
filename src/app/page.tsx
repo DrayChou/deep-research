@@ -1,7 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useLayoutEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
@@ -18,7 +17,6 @@ const History = dynamic(() => import("@/components/History"));
 const Knowledge = dynamic(() => import("@/components/Knowledge"));
 
 function Home() {
-  const { t } = useTranslation();
   const {
     openSetting,
     setOpenSetting,

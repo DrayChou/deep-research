@@ -96,6 +96,8 @@ NEXT_PUBLIC_DISABLED_AI_PROVIDER=
 NEXT_PUBLIC_DISABLED_SEARCH_PROVIDER=
 # (Optional) Customize the model list, add or delete models
 NEXT_PUBLIC_MODEL_LIST=
+# (Optional) Set default language. Possible values: en-US, zh-CN, es-ES. Default: zh-CN
+NEXT_PUBLIC_DEFAULT_LANGUAGE=zh-CN
 
 # (Optional) Injected script code can be used for statistics or error tracking.
 HEAD_SCRIPTS=
