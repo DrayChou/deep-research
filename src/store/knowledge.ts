@@ -13,6 +13,7 @@ type KnowledgeFunction = {
   get: (id: string) => Knowledge | null;
   update: (id: string, knowledge: Partial<Knowledge>) => boolean;
   remove: (id: string) => boolean;
+  clear: () => void;
 };
 
 export const useKnowledgeStore = create(
@@ -45,12 +46,14 @@ export const useKnowledgeStore = create(
         });
         set(() => ({ knowledges: [...newKnowledges] }));
         return true;
-      },
-      remove: (id) => {
+      },      remove: (id) => {
         set((state) => ({
           knowledges: state.knowledges.filter((item) => item.id !== id),
         }));
         return true;
+      },
+      clear: () => {
+        set(() => ({ knowledges: [] }));
       },
     }),
     {

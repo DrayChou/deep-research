@@ -141,8 +141,28 @@ class ChatHistoryService {
       }
 
       const topic = await response.json();
-      console.log('[ChatHistoryService] 话题创建成功:', topic.id);
-      return topic.id;
+      console.log('[ChatHistoryService] 话题创建响应:', topic);
+      
+      // 检查数据中心返回格式：{code: 200, message: "xxx", data: {...}}
+      if (topic.code && topic.code !== 200) {
+        throw new Error(`创建话题失败: ${topic.message || '未知错误'}`);
+      }
+      
+      // 提取话题ID，优先使用data.id
+      let topicId: string;
+      if (topic.data && topic.data.id) {
+        topicId = topic.data.id;
+      } else if (topic.id) {
+        topicId = topic.id;
+      } else if (typeof topic === 'string') {
+        topicId = topic;
+      } else {
+        console.error('[ChatHistoryService] 无法从响应中提取话题ID:', topic);
+        throw new Error('无法从响应中提取话题ID');
+      }
+      
+      console.log('[ChatHistoryService] 话题创建成功:', topicId);
+      return topicId;
     } catch (error) {
       console.error('[ChatHistoryService] 创建话题失败:', error);
       throw error;

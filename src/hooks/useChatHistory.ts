@@ -111,17 +111,27 @@ export const useChatHistory = () => {
       }
 
       // 1. 创建话题
+      console.log('[useChatHistory] 开始创建话题...');
       const topicId = await chatHistoryService.createDeepResearchTopic(userQuery);
+      
+      if (!topicId) {
+        throw new Error('话题创建失败：未返回话题ID');
+      }
+      
+      // 2. 保存话题ID到本地
       authStore.setTopicId(topicId);
       console.log('[useChatHistory] 新话题创建成功:', topicId);
 
-      // 2. 保存用户问题
+      // 3. 等待一下确保话题创建完成，然后保存用户问题
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[useChatHistory] 保存用户问题...');
       await chatHistoryService.saveChatMessage(topicId, 'user', userQuery, {
         chat_type: 'deep_research',
         stage: 'initial_query'
       });
 
-      // 3. 保存AI回复
+      // 4. 保存AI回复
+      console.log('[useChatHistory] 保存AI回复...');
       await chatHistoryService.saveChatMessage(topicId, 'assistant', aiResponse, {
         chat_type: 'deep_research',
         stage: 'questions_generated'

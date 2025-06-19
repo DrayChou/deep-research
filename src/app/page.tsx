@@ -5,6 +5,9 @@ import { useTheme } from "next-themes";
 import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
 import { useAuthStore } from "@/store/auth";
+import { useTaskStore } from "@/store/task";
+import { useHistoryStore } from "@/store/history";
+import { useKnowledgeStore } from "@/store/knowledge";
 import { useChatHistory } from "@/hooks/useChatHistory";
 import { useJwtAuth } from "@/hooks/useJwtAuth";
 
@@ -49,6 +52,19 @@ function Home() {
     const envDataCenterUrl = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
     if (envDataCenterUrl) {
       useAuthStore.getState().setDataBaseUrl(envDataCenterUrl);
+    }
+    
+    // 在处理URL参数之前，先检查现有JWT的用户信息
+    const currentAuth = useAuthStore.getState();
+    if (currentAuth.jwt && currentAuth.username) {
+      // 重新验证现有JWT的用户信息，检查是否有用户变更
+      const needsClearData = useAuthStore.getState().setJwtWithUserCheck(currentAuth.jwt);
+      if (needsClearData) {
+        console.log('[Page] 应用启动时检测到用户变更，清理本地数据');
+        useTaskStore.getState().reset();
+        useHistoryStore.getState().clear();
+        useKnowledgeStore.getState().clear();
+      }
     }
     
     // 解析 URL 参数
@@ -101,7 +117,18 @@ function Home() {
 
       // 处理认证相关参数
       if (urlParams.jwt) {
-        useAuthStore.getState().setJwt(urlParams.jwt);
+        // 使用安全的JWT设置，检查用户变更
+        const needsClearData = useAuthStore.getState().setJwtWithUserCheck(urlParams.jwt);
+        
+        if (needsClearData) {
+          console.log('[Page] 检测到用户变更，清理本地数据');
+          // 清理所有用户相关数据
+          useTaskStore.getState().reset();
+          useHistoryStore.getState().clear();
+          useKnowledgeStore.getState().clear();
+          // 不清理setting store，因为它包含系统配置而非用户数据
+        }
+        
         // 后台验证JWT
         setTimeout(() => {
           jwtAuth.validateJwt();

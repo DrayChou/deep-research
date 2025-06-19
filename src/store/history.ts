@@ -19,6 +19,7 @@ interface HistoryFunction {
   load: (id: string) => TaskStore | void;
   update: (id: string, taskStore: TaskStore) => boolean;
   remove: (id: string) => boolean;
+  clear: () => void;
 }
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
@@ -58,12 +59,14 @@ export const useHistoryStore = create(
         });
         set(() => ({ history: [...newHistory] }));
         return true;
-      },
-      remove: (id) => {
+      },      remove: (id) => {
         set((state) => ({
           history: state.history.filter((item) => item.id !== id),
         }));
         return true;
+      },
+      clear: () => {
+        set(() => ({ history: [] }));
       },
     }),
     {

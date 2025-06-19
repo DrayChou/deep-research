@@ -75,6 +75,7 @@ export interface SettingStore {
 interface SettingFunction {
   update: (values: Partial<SettingStore>) => void;
   reset: () => void;
+  clear: () => void;
 }
 
 export const defaultValues: SettingStore = {
@@ -149,11 +150,11 @@ export const defaultValues: SettingStore = {
 };
 
 export const useSettingStore = create(
-  persist<SettingStore & SettingFunction>(
-    (set) => ({
+  persist<SettingStore & SettingFunction>(    (set) => ({
       ...defaultValues,
       update: (values) => set(values),
       reset: () => set(defaultValues),
+      clear: () => set(defaultValues),
     }),
     { name: "setting" }
   )
