@@ -41,9 +41,9 @@ export function ConfigUrlGenerator() {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(generatedUrl);
-      toast.success("URL已复制到剪贴板");
-    } catch (error) {
-      toast.error("复制失败");
+      toast.success(t("configUrlGenerator.copied"));
+    } catch {
+      toast.error(t("configUrlGenerator.copyFailed"));
     }
   };
 
@@ -54,23 +54,23 @@ export function ConfigUrlGenerator() {
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardHeader>
-        <CardTitle>配置URL生成器</CardTitle>
+        <CardTitle>{t("configUrlGenerator.title")}</CardTitle>
         <CardDescription>
-          生成带有预配置参数的URL，方便快速启动Deep Research应用
+          {t("configUrlGenerator.description")}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="basic" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="basic">基础配置</TabsTrigger>
-            <TabsTrigger value="auth">认证配置</TabsTrigger>
-            <TabsTrigger value="advanced">高级配置</TabsTrigger>
+            <TabsTrigger value="basic">{t("configUrlGenerator.basic")}</TabsTrigger>
+            <TabsTrigger value="auth">{t("configUrlGenerator.auth")}</TabsTrigger>
+            <TabsTrigger value="advanced">{t("configUrlGenerator.advanced")}</TabsTrigger>
           </TabsList>
           
           <TabsContent value="basic" className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="provider">AI厂商</Label>
+                <Label htmlFor="provider">{t("configUrlGenerator.provider")}</Label>
                 <select
                   id="provider"
                   className="w-full p-2 border rounded"
@@ -86,18 +86,18 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="apiKey">API密钥</Label>
+                <Label htmlFor="apiKey">{t("configUrlGenerator.apiKey")}</Label>
                 <Input
                   id="apiKey"
                   type="password"
-                  placeholder="输入API密钥"
+                  placeholder={t("configUrlGenerator.apiKey")}
                   value={config.apiKey || ""}
                   onChange={(e) => handleConfigChange("apiKey", e.target.value)}
                 />
               </div>
               
               <div>
-                <Label htmlFor="thinkingModel">思考模型</Label>
+                <Label htmlFor="thinkingModel">{t("configUrlGenerator.thinkingModel")}</Label>
                 <Input
                   id="thinkingModel"
                   placeholder="例如: gemini-2.0-flash-thinking-exp"
@@ -107,7 +107,7 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="taskModel">任务模型</Label>
+                <Label htmlFor="taskModel">{t("configUrlGenerator.taskModel")}</Label>
                 <Input
                   id="taskModel"
                   placeholder="例如: gemini-2.0-flash-exp"
@@ -121,10 +121,10 @@ export function ConfigUrlGenerator() {
           <TabsContent value="auth" className="space-y-4">
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <Label htmlFor="jwt">JWT令牌</Label>
+                <Label htmlFor="jwt">{t("configUrlGenerator.jwt")}</Label>
                 <Textarea
                   id="jwt"
-                  placeholder="输入JWT令牌用于数据中心认证"
+                  placeholder={t("configUrlGenerator.jwt")}
                   value={config.jwt || ""}
                   onChange={(e) => handleConfigChange("jwt", e.target.value)}
                   rows={3}
@@ -132,21 +132,21 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="topicId">话题ID</Label>
+                <Label htmlFor="topicId">{t("configUrlGenerator.topicId")}</Label>
                 <Input
                   id="topicId"
-                  placeholder="输入话题ID以加载历史记录"
+                  placeholder={t("configUrlGenerator.topicId")}
                   value={config.topicId || ""}
                   onChange={(e) => handleConfigChange("topicId", e.target.value)}
                 />
               </div>
               
               <div>
-                <Label htmlFor="accessPassword">访问密码</Label>
+                <Label htmlFor="accessPassword">{t("configUrlGenerator.accessPassword")}</Label>
                 <Input
                   id="accessPassword"
                   type="password"
-                  placeholder="输入访问密码"
+                  placeholder={t("configUrlGenerator.accessPassword")}
                   value={config.accessPassword || ""}
                   onChange={(e) => handleConfigChange("accessPassword", e.target.value)}
                 />
@@ -157,7 +157,7 @@ export function ConfigUrlGenerator() {
           <TabsContent value="advanced" className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="searchProvider">搜索提供商</Label>
+                <Label htmlFor="searchProvider">{t("configUrlGenerator.searchProvider")}</Label>
                 <select
                   id="searchProvider"
                   className="w-full p-2 border rounded"
@@ -174,7 +174,7 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="searchMaxResult">最大搜索结果数</Label>
+                <Label htmlFor="searchMaxResult">{t("configUrlGenerator.searchMaxResult")}</Label>
                 <Input
                   id="searchMaxResult"
                   type="number"
@@ -185,7 +185,7 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="language">界面语言</Label>
+                <Label htmlFor="language">{t("configUrlGenerator.language")}</Label>
                 <select
                   id="language"
                   className="w-full p-2 border rounded"
@@ -199,7 +199,7 @@ export function ConfigUrlGenerator() {
               </div>
               
               <div>
-                <Label htmlFor="theme">主题</Label>
+                <Label htmlFor="theme">{t("configUrlGenerator.theme")}</Label>
                 <select
                   id="theme"
                   className="w-full p-2 border rounded"
@@ -217,12 +217,12 @@ export function ConfigUrlGenerator() {
         
         <div className="mt-6 space-y-4">
           <Button onClick={handleGenerate} className="w-full">
-            生成配置URL
+            {t("configUrlGenerator.generate")}
           </Button>
           
           {generatedUrl && (
             <div className="space-y-2">
-              <Label>生成的URL:</Label>
+              <Label>{t("configUrlGenerator.generatedUrl")}:</Label>
               <div className="flex gap-2">
                 <Textarea
                   readOnly
@@ -244,12 +244,12 @@ export function ConfigUrlGenerator() {
         </div>
         
         <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-          <h4 className="font-semibold mb-2">使用说明:</h4>
+          <h4 className="font-semibold mb-2">{t("configUrlGenerator.usageInstructions")}:</h4>
           <ul className="text-sm space-y-1 text-gray-600 dark:text-gray-400">
-            <li>• 填写需要预配置的参数，留空的参数将不会包含在URL中</li>
-            <li>• JWT令牌和API密钥等敏感信息会在页面加载后自动从URL中清除</li>
-            <li>• 话题ID用于从数据中心加载历史对话记录</li>
-            <li>• 生成的URL可以分享给他人快速启动相同配置的应用</li>
+            <li>• {t("configUrlGenerator.usageNote1")}</li>
+            <li>• {t("configUrlGenerator.usageNote2")}</li>
+            <li>• {t("configUrlGenerator.usageNote3")}</li>
+            <li>• {t("configUrlGenerator.usageNote4")}</li>
           </ul>
         </div>
       </CardContent>
