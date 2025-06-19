@@ -68,6 +68,30 @@ class ChatHistoryService {
     return dataBaseUrl || process.env.NEXT_PUBLIC_DATA_CENTER_URL || '';
   }
 
+  /**
+   * 安全拼接API URL，避免路径重复
+   */
+  private buildApiUrl(endpoint: string): string {
+    let base = this.baseUrl.replace(/\/+$/, ''); // 移除末尾斜杠
+    let path = endpoint.replace(/^\/+/, ''); // 移除开头斜杠
+    
+    // 检查base是否已经包含api/v1
+    if (base.endsWith('/api/v1')) {
+      // 如果endpoint也以api/v1开头，则移除重复部分
+      if (path.startsWith('api/v1/')) {
+        path = path.substring(7); // 移除 'api/v1/'
+      }
+    } else {
+      // 如果base不包含api/v1，但endpoint以api/v1开头，保持不变
+      // 如果都不包含，需要添加api/v1
+      if (!path.startsWith('api/v1/')) {
+        path = 'api/v1/' + path;
+      }
+    }
+    
+    return `${base}/${path}`;
+  }
+
   private getJWT(): string {
     const { jwt } = useAuthStore.getState();
     return jwt || '';
@@ -106,7 +130,7 @@ class ChatHistoryService {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/chat/topics`, {
+      const response = await fetch(this.buildApiUrl('chat/topics'), {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(topicData)
@@ -136,7 +160,7 @@ class ChatHistoryService {
 
     try {
       // 1. 获取话题信息
-      const topicResponse = await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}`, {
+      const topicResponse = await fetch(this.buildApiUrl(`chat/topics/${topicId}`), {
         headers: this.getAuthHeaders()
       });
 
@@ -147,7 +171,7 @@ class ChatHistoryService {
       const topic: ChatTopic = await topicResponse.json();
 
       // 2. 获取消息列表
-      const messagesResponse = await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}/messages`, {
+      const messagesResponse = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
         headers: this.getAuthHeaders()
       });
 
@@ -187,7 +211,7 @@ class ChatHistoryService {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}/messages`, {
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(messageData)
@@ -236,7 +260,7 @@ class ChatHistoryService {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}/messages`, {
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(messageData)
@@ -272,7 +296,7 @@ class ChatHistoryService {
     };
 
     try {
-      await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}/metadata`, {
+      await fetch(this.buildApiUrl(`chat/topics/${topicId}/metadata`), {
         method: 'PATCH',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(updateData)

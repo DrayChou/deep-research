@@ -41,16 +41,39 @@ class DataCenterAPI {
   }
 
   /**
+   * 安全拼接API URL，避免路径重复
+   */
+  private buildApiUrl(endpoint: string): string {
+    let base = this.getBaseUrl().replace(/\/+$/, ''); // 移除末尾斜杠
+    let path = endpoint.replace(/^\/+/, ''); // 移除开头斜杠
+    
+    // 检查base是否已经包含api/v1
+    if (base.endsWith('/api/v1')) {
+      // 如果endpoint也以api/v1开头，则移除重复部分
+      if (path.startsWith('api/v1/')) {
+        path = path.substring(7); // 移除 'api/v1/'
+      }
+    } else {
+      // 如果base不包含api/v1，但endpoint以api/v1开头，保持不变
+      // 如果都不包含，需要添加api/v1
+      if (!path.startsWith('api/v1/')) {
+        path = 'api/v1/' + path;
+      }
+    }
+    
+    return `${base}/${path}`;
+  }
+
+  /**
    * 获取话题历史记录（兼容旧方法，实际使用chatHistoryService）
    */
   async getTopicHistory(topicId: string): Promise<ApiResponse<TopicHistory>> {
     try {
-      const baseUrl = this.getBaseUrl();
-      if (!baseUrl) {
+      if (!this.getBaseUrl()) {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/v1/chat/topics/${topicId}`, {
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}`), {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -78,12 +101,11 @@ class DataCenterAPI {
    */
   async getTopicList(): Promise<ApiResponse<TopicHistory[]>> {
     try {
-      const baseUrl = this.getBaseUrl();
-      if (!baseUrl) {
+      if (!this.getBaseUrl()) {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/v1/chat/topics`, {
+      const response = await fetch(this.buildApiUrl('chat/topics'), {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -111,12 +133,11 @@ class DataCenterAPI {
    */
   async validateToken(): Promise<ApiResponse<{ valid: boolean; user?: any }>> {
     try {
-      const baseUrl = this.getBaseUrl();
-      if (!baseUrl) {
+      if (!this.getBaseUrl()) {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      const response = await fetch(this.buildApiUrl('auth/me'), {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
