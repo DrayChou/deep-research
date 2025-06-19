@@ -1,6 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useLayoutEffect, useEffect, useCallback } from "react";
+import { useLayoutEffect, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
@@ -19,6 +20,7 @@ const History = dynamic(() => import("@/components/History"));
 const Knowledge = dynamic(() => import("@/components/Knowledge"));
 
 function Home() {
+  const { t } = useTranslation();
   const {
     openSetting,
     setOpenSetting,
@@ -30,7 +32,6 @@ function Home() {
 
   const { theme } = useSettingStore();
   const { setTheme } = useTheme();
-  const authStore = useAuthStore();
   const chatHistory = useChatHistory();
 
   // 处理主题设置
@@ -38,13 +39,13 @@ function Home() {
     const settingStore = useSettingStore.getState();
     setTheme(settingStore.theme);
   }, [theme, setTheme]);
-  // 处理URL参数初始化 - 只在组件挂载时执行一次
+
+  // 处理 URL 参数初始化
   useEffect(() => {
-    // 直接在effect内部调用，避免依赖函数引用
     const searchParams = new URLSearchParams(window.location.search);
-    const urlParams: any = {};
     
-    // 解析URL参数
+    // 解析 URL 参数
+    const urlParams: any = {};
     if (searchParams.get('provider')) urlParams.provider = searchParams.get('provider');
     if (searchParams.get('apiKey')) urlParams.apiKey = searchParams.get('apiKey');
     if (searchParams.get('thinkingModel')) urlParams.thinkingModel = searchParams.get('thinkingModel');
@@ -55,15 +56,14 @@ function Home() {
     if (searchParams.get('language')) urlParams.language = searchParams.get('language');
     if (searchParams.get('theme')) urlParams.theme = searchParams.get('theme');
     
-    console.log('[Home] 检测到URL参数:', urlParams);
-
-    // 应用配置参数到设置store
     if (Object.keys(urlParams).length > 0) {
+      console.log('[Home] Detected URL params:', urlParams);
+
+      // 应用配置参数到设置
       const settingUpdates: any = {};
       
       if (urlParams.provider) {
         settingUpdates.provider = urlParams.provider;
-        // 根据provider设置对应的API Key
         switch (urlParams.provider) {
           case 'google':
             if (urlParams.apiKey) settingUpdates.apiKey = urlParams.apiKey;
@@ -87,43 +87,45 @@ function Home() {
       if (urlParams.language) settingUpdates.language = urlParams.language;
       if (urlParams.theme) settingUpdates.theme = urlParams.theme;
       
-      // 应用设置更新
       if (Object.keys(settingUpdates).length > 0) {
         useSettingStore.getState().update(settingUpdates);
       }
-    }
 
-    // 处理认证相关参数
-    if (urlParams.jwt) {
-      useAuthStore.getState().setJwt(urlParams.jwt);
-      console.log('[Home] 设置JWT令牌');
-    }    if (urlParams.topicId) {
-      useAuthStore.getState().setTopicId(urlParams.topicId);
-      console.log('[Home] 设置话题 ID：', urlParams.topicId);
-      
-      // 使用顶层声明的chatHistory
-      chatHistory.initializeOrLoadTopic(urlParams.topicId);
-    }
+      // 处理认证相关参数
+      if (urlParams.jwt) {
+        useAuthStore.getState().setJwt(urlParams.jwt);
+        console.log('[Home]', t("auth.jwtSet"));
+      }
 
-    // 清理敏感URL参数
-    setTimeout(() => {
-      const newParams = new URLSearchParams(searchParams);
-      const sensitiveParams = ['apiKey', 'jwt'];
-      
-      let hasChanges = false;
-      sensitiveParams.forEach(param => {
-        if (newParams.has(param)) {
-          newParams.delete(param);
-          hasChanges = true;
-        }
-      });
+      if (urlParams.topicId) {
+        useAuthStore.getState().setTopicId(urlParams.topicId);
+        console.log('[Home]', t("auth.topicIdSet"));
+        chatHistory.loadTopicHistory(urlParams.topicId);
+      }
+
+      // 清理敏感 URL 参数
+      setTimeout(() => {
+        const newParams = new URLSearchParams(searchParams);
+        const sensitiveParams = ['apiKey', 'jwt', 'accessPassword'];
+        
+        let hasChanges = false;
+        sensitiveParams.forEach(param => {
+          if (newParams.has(param)) {
+            newParams.delete(param);
+            hasChanges = true;
+          }
+        });
+        
         if (hasChanges) {
-        const newUrl = `${window.location.pathname}${newParams.toString() ? '?' + newParams.toString() : ''}`;
-        window.history.replaceState({}, '', newUrl);
-        console.log('[Home] 已清理敏感URL参数');
-      }    }, 1000);
+          const newUrl = `${window.location.pathname}?${newParams.toString()}`;
+          window.history.replaceState({}, '', newUrl);
+          console.log('[Home] Sensitive URL parameters cleared');
+        }
+      }, 1000);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 忽略chatHistory依赖，避免循环
+  }, []);
+
   return (
     <div className="max-lg:max-w-screen-md max-w-screen-lg mx-auto px-4">
       <Header />
@@ -133,15 +135,6 @@ function Home() {
         <SearchResult />
         <FinalReport />
       </main>
-      {/*
-      <footer className="my-4 text-center text-sm text-gray-600 print:hidden">
-        <a href="https://github.com/u14app/" target="_blank">
-          {t("copyright", {
-            name: "U14App",
-          })}
-        </a>
-      </footer>
-      */}
       <aside className="print:hidden">
         <Setting open={openSetting} onClose={() => setOpenSetting(false)} />
         <History open={openHistory} onClose={() => setOpenHistory(false)} />

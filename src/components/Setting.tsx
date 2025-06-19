@@ -393,7 +393,7 @@ function Setting({ open, onClose }: SettingProps) {
                   {t("setting.experimental")}
                 </TabsTrigger>
                 <TabsTrigger className="flex-1" value="config-url">
-                  配置URL
+                  {t("setting.configUrl")}
                 </TabsTrigger>
               </TabsList>
               <TabsContent className="space-y-4  min-h-[250px]" value="llm">
