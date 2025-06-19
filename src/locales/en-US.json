@@ -357,14 +357,37 @@
     "usageNote2": "Sensitive information like JWT tokens and API keys will be automatically cleared from the URL after page load",
     "usageNote3": "Topic ID is used to load historical conversation records from the data center",
     "usageNote4": "The generated URL can be shared with others to quickly launch the application with the same configuration"
-  },
-  "auth": {
+  },  "auth": {
     "loadingHistory": "Loading topic history",
     "historyLoadSuccess": "Topic history loaded successfully",
     "historyLoadFailed": "Failed to load topic history",
     "historyNotFound": "Topic history not found",
     "dataCenterNotConfigured": "Data center URL not configured",
     "jwtSet": "JWT token set",
-    "topicIdSet": "Topic ID set"
+    "topicIdSet": "Topic ID set",
+    "jwtNotProvided": "JWT token not provided",
+    "jwtValidationFailed": "JWT token validation failed",
+    "jwtValidationError": "Error occurred during JWT token validation",
+    "jwtValidationSuccess": "JWT token validation successful",
+    "authenticationError": "Authentication error",
+    "authenticationFailed": "Authentication failed, please check access permissions",
+    "authenticationRequired": "Authentication Required",
+    "jwtRequired": "This application requires authentication to access data center features",
+    "jwtInvalid": "JWT token is invalid",
+    "accessDenied": "Access denied",
+    "reauthRequired": "Re-authentication required",
+    "jwtValidationInProgress": "JWT token validation in progress",
+    "pleaseWait": "Please wait...",
+    "authenticationSuccess": "Authentication successful",
+    "connectedToDataCenter": "Connected to data center",
+    "user": "User",
+    "unknown": "Unknown",
+    "retryValidation": "Retry validation",
+    "clearAuth": "Clear authentication",
+    "jwtNotValidated": "JWT token not validated",
+    "jwtNotValidatedDescription": "JWT token is set but not validated, click to verify and enable data center features",    "validateNow": "Validate now"
+  },
+  "common": {
+    "ok": "OK"
   }
 }

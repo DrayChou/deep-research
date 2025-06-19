@@ -357,14 +357,32 @@
     "usageNote2": "La información sensible como tokens JWT y claves API se eliminará automáticamente de la URL después de cargar la página",
     "usageNote3": "El ID de tema se usa para cargar registros de conversación históricos desde el centro de datos",
     "usageNote4": "La URL generada se puede compartir con otros para lanzar rápidamente la aplicación con la misma configuración"
-  },
-  "auth": {
+  },  "auth": {
     "loadingHistory": "Cargando historial del tema",
     "historyLoadSuccess": "Historial del tema cargado exitosamente",
     "historyLoadFailed": "Error al cargar el historial del tema",
     "historyNotFound": "Historial del tema no encontrado",
     "dataCenterNotConfigured": "URL del centro de datos no configurada",
     "jwtSet": "Token JWT establecido",
-    "topicIdSet": "ID de tema establecido"
+    "topicIdSet": "ID de tema establecido",
+    "jwtNotProvided": "Token JWT no proporcionado",
+    "jwtValidationFailed": "Falló la validación del token JWT",
+    "jwtValidationError": "Error durante la validación del token JWT",
+    "jwtValidationSuccess": "Validación del token JWT exitosa",
+    "authenticationError": "Error de autenticación",    "jwtExpired": "El token JWT ha expirado",
+    "jwtInvalid": "El token JWT es inválido",
+    "accessDenied": "Acceso denegado",
+    "reauthRequired": "Se requiere re-autenticación",
+    "jwtValidationInProgress": "Validación del token JWT en progreso",
+    "pleaseWait": "Por favor espere...",
+    "authenticationSuccess": "Autenticación exitosa",
+    "connectedToDataCenter": "Conectado al centro de datos",
+    "user": "Usuario",
+    "unknown": "Desconocido",
+    "retryValidation": "Reintentar validación",
+    "clearAuth": "Limpiar autenticación",
+    "jwtNotValidated": "Token JWT no validado",
+    "jwtNotValidatedDescription": "El token JWT está configurado pero no validado, haga clic para verificar y habilitar las funciones del centro de datos",
+    "validateNow": "Validar ahora"
   }
 }

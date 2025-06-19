@@ -1,12 +1,12 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useLayoutEffect, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
 import { useAuthStore } from "@/store/auth";
 import { useChatHistory } from "@/hooks/useChatHistory";
+import { useJwtAuth } from "@/hooks/useJwtAuth";
 
 const Header = dynamic(() => import("@/components/Internal/Header"));
 const Setting = dynamic(() => import("@/components/Setting"));
@@ -18,9 +18,9 @@ const SearchResult = dynamic(
 const FinalReport = dynamic(() => import("@/components/Research/FinalReport"));
 const History = dynamic(() => import("@/components/History"));
 const Knowledge = dynamic(() => import("@/components/Knowledge"));
+const JwtStatus = dynamic(() => import("@/components/JwtStatus"));
 
 function Home() {
-  const { t } = useTranslation();
   const {
     openSetting,
     setOpenSetting,
@@ -33,6 +33,7 @@ function Home() {
   const { theme } = useSettingStore();
   const { setTheme } = useTheme();
   const chatHistory = useChatHistory();
+  const jwtAuth = useJwtAuth();
 
   // 处理主题设置
   useLayoutEffect(() => {
@@ -43,6 +44,12 @@ function Home() {
   // 处理 URL 参数初始化
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
+    
+    // 检查是否需要JWT认证（如果配置了数据中心URL）
+    const envDataCenterUrl = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
+    if (envDataCenterUrl) {
+      useAuthStore.getState().setDataBaseUrl(envDataCenterUrl);
+    }
     
     // 解析 URL 参数
     const urlParams: any = {};
@@ -94,13 +101,18 @@ function Home() {
       // 处理认证相关参数
       if (urlParams.jwt) {
         useAuthStore.getState().setJwt(urlParams.jwt);
-        console.log('[Home]', t("auth.jwtSet"));
+        // 后台验证JWT
+        setTimeout(() => {
+          jwtAuth.validateJwt();
+        }, 100);
       }
 
       if (urlParams.topicId) {
         useAuthStore.getState().setTopicId(urlParams.topicId);
-        console.log('[Home]', t("auth.topicIdSet"));
-        chatHistory.loadTopicHistory(urlParams.topicId);
+        // 加载话题历史
+        setTimeout(async () => {
+          await chatHistory.initializeOrLoadTopic(urlParams.topicId);
+        }, 200);
       }
 
       // 清理敏感 URL 参数
@@ -119,7 +131,6 @@ function Home() {
         if (hasChanges) {
           const newUrl = `${window.location.pathname}?${newParams.toString()}`;
           window.history.replaceState({}, '', newUrl);
-          console.log('[Home] Sensitive URL parameters cleared');
         }
       }, 1000);
     }
@@ -127,23 +138,29 @@ function Home() {
   }, []);
 
   return (
-    <div className="max-lg:max-w-screen-md max-w-screen-lg mx-auto px-4">
-      <Header />
-      <main>
-        <Topic />
-        <Feedback />
-        <SearchResult />
-        <FinalReport />
-      </main>
-      <aside className="print:hidden">
-        <Setting open={openSetting} onClose={() => setOpenSetting(false)} />
-        <History open={openHistory} onClose={() => setOpenHistory(false)} />
-        <Knowledge
-          open={openKnowledge}
-          onClose={() => setOpenKnowledge(false)}
-        />
-      </aside>
-    </div>
+    <>
+      {/* JWT全屏错误界面 - 在最顶层渲染 */}
+      <JwtStatus />
+      
+      <div className="max-lg:max-w-screen-md max-w-screen-lg mx-auto px-4">
+        <Header />
+        
+        <main>
+          <Topic />
+          <Feedback />
+          <SearchResult />
+          <FinalReport />
+        </main>
+        <aside className="print:hidden">
+          <Setting open={openSetting} onClose={() => setOpenSetting(false)} />
+          <History open={openHistory} onClose={() => setOpenHistory(false)} />
+          <Knowledge
+            open={openKnowledge}
+            onClose={() => setOpenKnowledge(false)}
+          />
+        </aside>
+      </div>
+    </>
   );
 }
 

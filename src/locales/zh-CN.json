@@ -356,15 +356,15 @@
     "usageNote1": "填写需要预配置的参数，留空的参数将不会包含在URL中",
     "usageNote2": "JWT令牌和API密钥等敏感信息会在页面加载后自动从URL中清除",
     "usageNote3": "话题ID用于从数据中心加载历史对话记录",
-    "usageNote4": "生成的URL可以分享给他人快速启动相同配置的应用"
-  },
-  "auth": {
-    "loadingHistory": "正在加载话题历史记录",
-    "historyLoadSuccess": "话题历史记录加载成功",
-    "historyLoadFailed": "话题历史记录加载失败",
-    "historyNotFound": "未找到话题历史记录",
-    "dataCenterNotConfigured": "数据中心URL未配置",
-    "jwtSet": "JWT令牌已设置",
+    "usageNote4": "生成的URL可以分享给他人快速启动相同配置的应用"  },  "auth": {
+    "authenticationError": "认证失败",
+    "authenticationFailed": "身份验证失败，请检查访问权限",
+    "authenticationRequired": "需要身份认证",
+    "jwtRequired": "访问此功能需要有效的身份认证",
+    "jwtSet": "认证信息已设置",
     "topicIdSet": "话题ID已设置"
+  },
+  "common": {
+    "ok": "确定"
   }
 }
