@@ -59,6 +59,7 @@ function Home() {
     if (searchParams.get('taskModel')) urlParams.taskModel = searchParams.get('taskModel');
     if (searchParams.get('jwt')) urlParams.jwt = searchParams.get('jwt');
     if (searchParams.get('topicId')) urlParams.topicId = searchParams.get('topicId');
+    if (searchParams.get('dataBaseUrl')) urlParams.dataBaseUrl = searchParams.get('dataBaseUrl');
     if (searchParams.get('searchProvider')) urlParams.searchProvider = searchParams.get('searchProvider');
     if (searchParams.get('language')) urlParams.language = searchParams.get('language');
     if (searchParams.get('theme')) urlParams.theme = searchParams.get('theme');
@@ -107,6 +108,11 @@ function Home() {
         }, 100);
       }
 
+      if (urlParams.dataBaseUrl) {
+        useAuthStore.getState().setDataBaseUrl(urlParams.dataBaseUrl);
+        console.log('[Home] 数据中心URL已设置:', urlParams.dataBaseUrl);
+      }
+
       if (urlParams.topicId) {
         useAuthStore.getState().setTopicId(urlParams.topicId);
         // 加载话题历史
@@ -118,7 +124,7 @@ function Home() {
       // 清理敏感 URL 参数
       setTimeout(() => {
         const newParams = new URLSearchParams(searchParams);
-        const sensitiveParams = ['apiKey', 'jwt', 'accessPassword'];
+        const sensitiveParams = ['apiKey', 'jwt', 'accessPassword', 'dataBaseUrl'];
         
         let hasChanges = false;
         sensitiveParams.forEach(param => {
