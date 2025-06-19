@@ -8,8 +8,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
   LoaderCircle,
-  CircleCheck,
-  TextSearch,
   Download,
   Trash,
   RotateCcw,
@@ -55,11 +53,23 @@ function addQuoteBeforeAllLine(text: string = "") {
 
 function TaskState({ state }: { state: SearchTask["state"] }) {
   if (state === "completed") {
-    return <CircleCheck className="h-5 w-5" />;
+    return (
+      <div className="w-6 h-6 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-400 flex items-center justify-center text-sm border border-green-200 dark:border-green-800">
+        ✅
+      </div>
+    );
   } else if (state === "processing") {
-    return <LoaderCircle className="animate-spin h-5 w-5" />;
+    return (
+      <div className="w-6 h-6 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm border border-blue-200 dark:border-blue-800 animate-pulse">
+        ⏳
+      </div>
+    );
   } else {
-    return <TextSearch className="h-5 w-5" />;
+    return (
+      <div className="w-6 h-6 bg-gray-100 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 flex items-center justify-center text-sm border border-gray-200 dark:border-gray-800">
+        📋
+      </div>
+    );
   }
 }
 
@@ -168,14 +178,22 @@ function SearchResult() {
   useEffect(() => {
     form.setValue("suggestion", taskStore.suggestion);
   }, [taskStore.suggestion, form]);
-
   return (
-    <section className="p-4 border rounded-md mt-4 print:hidden">
-      <h3 className="font-semibold text-lg border-b mb-2 leading-10">
-        {t("research.searchResult.title")}
-      </h3>
-      {taskStore.tasks.length === 0 ? (
-        <div>{t("research.searchResult.emptyTip")}</div>
+    <section className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 border border-purple-200 dark:border-purple-800 mt-4 print:hidden shadow-sm">      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-purple-200 dark:border-purple-700">
+        <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-200 dark:border-purple-800">
+          <span className="text-sm">🔬</span>
+        </div>
+        <h3 className="font-semibold text-lg text-purple-800 dark:text-purple-200">
+          {t("research.searchResult.title")}
+        </h3>
+      </div>{taskStore.tasks.length === 0 ? (
+        <div className="text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/50 p-4 border-l-4 border-purple-400 flex items-center gap-3">
+          <span className="text-lg">📋</span>
+          <div>
+            <div className="font-medium">等待搜索任务</div>
+            <div className="text-sm opacity-75">{t("research.searchResult.emptyTip")}</div>
+          </div>
+        </div>
       ) : (
         <div>
           <Accordion className="mb-4" type="multiple">

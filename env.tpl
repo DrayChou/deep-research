@@ -98,6 +98,8 @@ NEXT_PUBLIC_DISABLED_SEARCH_PROVIDER=
 NEXT_PUBLIC_MODEL_LIST=
 # (Optional) Set default language. Possible values: en-US, zh-CN, es-ES. Default: zh-CN
 NEXT_PUBLIC_DEFAULT_LANGUAGE=zh-CN
+# (Optional) Data center base URL for topic history and JWT authentication
+NEXT_PUBLIC_DATA_CENTER_URL=
 
 # (Optional) Injected script code can be used for statistics or error tracking.
 HEAD_SCRIPTS=

@@ -77,14 +77,23 @@ function Feedback() {
   useEffect(() => {
     form.setValue("feedback", taskStore.feedback);
   }, [taskStore.feedback, form]);
-
-  return (
-    <section className="p-4 border rounded-md mt-4 print:hidden">
-      <h3 className="font-semibold text-lg border-b mb-2 leading-10">
-        {t("research.feedback.title")}
-      </h3>
+    return (
+    <section className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800 mt-4 print:hidden shadow-sm">      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-green-200 dark:border-green-700">
+        <div className="w-8 h-8 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-400 flex items-center justify-center border border-green-200 dark:border-green-800">
+          <span className="text-sm">📊</span>
+        </div>
+        <h3 className="font-semibold text-lg text-green-800 dark:text-green-200">
+          {t("research.feedback.title")}
+        </h3>
+      </div>
       {taskStore.questions === "" ? (
-        <div>{t("research.feedback.emptyTip")}</div>
+        <div className="text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/50 p-4 border-l-4 border-green-400 flex items-center gap-3">
+          <span className="text-lg">⏳</span>
+          <div>
+            <div className="font-medium">等待思考阶段完成</div>
+            <div className="text-sm opacity-75">{t("research.feedback.emptyTip")}</div>
+          </div>
+        </div>
       ) : (
         <div>
           <h4 className="mt-4 text-base font-semibold">

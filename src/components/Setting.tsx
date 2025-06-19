@@ -49,6 +49,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ConfigUrlGenerator } from "@/components/ConfigUrlGenerator";
 import useModel from "@/hooks/useModelList";
 import { useSettingStore } from "@/store/setting";
 import {
@@ -390,6 +391,9 @@ function Setting({ open, onClose }: SettingProps) {
                 </TabsTrigger>
                 <TabsTrigger className="flex-1" value="experimental">
                   {t("setting.experimental")}
+                </TabsTrigger>
+                <TabsTrigger className="flex-1" value="config-url">
+                  配置URL
                 </TabsTrigger>
               </TabsList>
               <TabsContent className="space-y-4  min-h-[250px]" value="llm">
@@ -3432,6 +3436,18 @@ function Setting({ open, onClose }: SettingProps) {
                     </FormItem>
                   )}
                 />
+              </TabsContent>
+              <TabsContent className="space-y-4 min-h-[250px]" value="config-url">
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+                    <h4 className="font-semibold mb-2">配置URL生成器</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      生成带有预配置参数的URL，方便快速启动Deep Research应用。
+                      配置的参数将会在打开新的浏览器窗口时自动应用。
+                    </p>
+                  </div>
+                  <ConfigUrlGenerator />
+                </div>
               </TabsContent>
             </Tabs>
           </form>

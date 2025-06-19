@@ -163,13 +163,16 @@ function FinalReport() {
   useEffect(() => {
     form.setValue("requirement", taskStore.requirement);
   }, [taskStore.requirement, form]);
-
   return (
     <>
-      <section className="p-4 border rounded-md mt-4 print:border-none">
-        <h3 className="font-semibold text-lg border-b mb-2 leading-10 print:hidden">
-          {t("research.finalReport.title")}
-        </h3>
+      <section className="p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/30 dark:to-red-950/30 border border-orange-200 dark:border-orange-800 mt-4 print:border-none shadow-sm">        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-orange-200 dark:border-orange-700 print:hidden">
+          <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 flex items-center justify-center border border-orange-200 dark:border-orange-800">
+            <span className="text-sm">🎯</span>
+          </div>
+          <h3 className="font-semibold text-lg text-orange-800 dark:text-orange-200">
+            {t("research.finalReport.title")}
+          </h3>
+        </div>
         {taskStore.finalReport !== "" ? (
           <article>
             <MagicDown
@@ -343,7 +346,13 @@ function FinalReport() {
           </Form>
         ) : null}
         {taskStore.finalReport === "" && !taskFinished ? (
-          <div>{t("research.finalReport.emptyTip")}</div>
+          <div className="text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/50 p-4 border-l-4 border-orange-400 flex items-center gap-3">
+            <span className="text-lg">📝</span>
+            <div>
+              <div className="font-medium">等待生成最终报告</div>
+              <div className="text-sm opacity-75">{t("research.finalReport.emptyTip")}</div>
+            </div>
+          </div>
         ) : null}
       </section>
       {openKnowledgeGraph ? (
