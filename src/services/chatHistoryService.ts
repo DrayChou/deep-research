@@ -34,7 +34,7 @@ interface ChatMessage {
   content: string;
   role: 'user' | 'assistant';
   created_at: string;
-  metadata: {
+  message_metadata: {
     message_type: string;
     deep_research_data?: {
       stage: string;
@@ -72,7 +72,7 @@ class ChatHistoryService {
    * 安全拼接API URL，避免路径重复
    */
   private buildApiUrl(endpoint: string): string {
-    let base = this.baseUrl.replace(/\/+$/, ''); // 移除末尾斜杠
+    const base = this.baseUrl.replace(/\/+$/, ''); // 移除末尾斜杠
     let path = endpoint.replace(/^\/+/, ''); // 移除开头斜杠
     
     // 检查base是否已经包含api/v1
@@ -257,11 +257,11 @@ class ChatHistoryService {
       return;
     }
 
-    const mapping = this.getStageMessageMapping();
+    const mapping = this.getStageMessageMapping() as Record<string, { role: 'user' | 'assistant', message_type: string, content: (data: any) => string }>;
     const stageConfig = mapping[stage];
     
     if (!stageConfig) {
-      console.warn('[ChatHistoryService] 未知的阶段类型:', stage);
+      console.warn('[ChatHistoryService] 未知的阶段类型：', stage);
       return;
     }
 
@@ -354,7 +354,7 @@ class ChatHistoryService {
 
     // 从消息中重构状态
     for (const message of sortedMessages) {
-      const stageData = message.metadata?.deep_research_data;
+      const stageData = message.message_metadata?.deep_research_data;
       if (!stageData) continue;
 
       switch (stageData.stage) {

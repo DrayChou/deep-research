@@ -88,7 +88,7 @@ export const useChatHistory = () => {
     }
   }, [authStore]);
 
-  // 保存聊天消息（用户-助手对话）
+  // 保存聊天消息（用户 - 助手对话）
   const saveChatMessage = useCallback(async (role: 'user' | 'assistant', content: string, metadata?: any) => {
     if (!authStore.topicId || !authStore.jwt) {
       console.log('[useChatHistory] 无话题ID或认证信息，跳过保存聊天消息');
@@ -118,7 +118,7 @@ export const useChatHistory = () => {
         throw new Error('话题创建失败：未返回话题ID');
       }
       
-      // 2. 保存话题ID到本地
+      // 2. 保存话题 ID 到本地
       authStore.setTopicId(topicId);
       console.log('[useChatHistory] 新话题创建成功:', topicId);
 
@@ -130,7 +130,7 @@ export const useChatHistory = () => {
         stage: 'initial_query'
       });
 
-      // 4. 保存AI回复
+      // 4. 保存 AI 回复
       console.log('[useChatHistory] 保存AI回复...');
       await chatHistoryService.saveChatMessage(topicId, 'assistant', aiResponse, {
         chat_type: 'deep_research',

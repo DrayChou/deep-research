@@ -44,7 +44,7 @@ class DataCenterAPI {
    * 安全拼接API URL，避免路径重复
    */
   private buildApiUrl(endpoint: string): string {
-    let base = this.getBaseUrl().replace(/\/+$/, ''); // 移除末尾斜杠
+    const base = this.getBaseUrl().replace(/\/+$/, ''); // 移除末尾斜杠
     let path = endpoint.replace(/^\/+/, ''); // 移除开头斜杠
     
     // 检查base是否已经包含api/v1

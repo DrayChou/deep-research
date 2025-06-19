@@ -37,6 +37,7 @@ import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
 import { useTaskStore } from "@/store/task";
 import { useHistoryStore } from "@/store/history";
+import { useAuthStore } from "@/store/auth";
 
 const formSchema = z.object({
   topic: z.string().min(2),
@@ -93,12 +94,13 @@ function Topic() {
       }
     }
   }
-
   function createNewResearch() {
     const { id, backup, reset } = useTaskStore.getState();
     const { update } = useHistoryStore.getState();
+    const { setTopicId } = useAuthStore.getState();
     if (id) update(id, backup());
     reset();
+    setTopicId(''); // 清空话题ID，表示开始新研究
     form.reset();
   }
 

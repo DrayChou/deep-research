@@ -79,10 +79,11 @@ function Home() {
     // 认证配置
     if (searchParams.get('jwt')) urlParams.jwt = searchParams.get('jwt');
     if (searchParams.get('topicId')) urlParams.topicId = searchParams.get('topicId');
+    if (searchParams.get('topic_id')) urlParams.topicId = searchParams.get('topic_id');
     if (searchParams.get('dataBaseUrl')) urlParams.dataBaseUrl = searchParams.get('dataBaseUrl');
     if (searchParams.get('accessPassword')) urlParams.accessPassword = searchParams.get('accessPassword');
     
-    // 各厂商专用API密钥
+    // 各厂商专用 API 密钥
     if (searchParams.get('openAIApiKey')) urlParams.openAIApiKey = searchParams.get('openAIApiKey');
     if (searchParams.get('openAIApiProxy')) urlParams.openAIApiProxy = searchParams.get('openAIApiProxy');
     if (searchParams.get('openAIThinkingModel')) urlParams.openAIThinkingModel = searchParams.get('openAIThinkingModel');
@@ -304,6 +305,11 @@ function Home() {
         setTimeout(async () => {
           await chatHistory.initializeOrLoadTopic(urlParams.topicId);
         }, 200);
+      } else if (Object.keys(urlParams).length > 0) {
+        // 有其他URL参数但没有topicId，说明是新建话题配置，清空当前研究状态
+        console.log('[Home] 新建话题模式，清空当前研究状态');
+        useAuthStore.getState().setTopicId(''); // 清空话题ID
+        useTaskStore.getState().reset(); // 清空研究任务状态
       }
 
       // 清理敏感 URL 参数
