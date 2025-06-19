@@ -12,6 +12,7 @@ import { useTaskStore } from "@/store/task";
 import { useHistoryStore } from "@/store/history";
 import { useSettingStore } from "@/store/setting";
 import { useKnowledgeStore } from "@/store/knowledge";
+import { useChatHistory } from "@/hooks/useChatHistory";
 import { outputGuidelinesPrompt } from "@/constants/prompts";
 import {
   getSystemPrompt,
@@ -47,8 +48,8 @@ function useDeepResearch() {
   const taskStore = useTaskStore();
   const { createModelProvider, getModel } = useModelProvider();
   const { search } = useWebSearch();
+  const chatHistory = useChatHistory();
   const [status, setStatus] = useState<string>("");
-
   async function askQuestions() {
     const { question } = useTaskStore.getState();
     const { thinkingModel } = getModel();
@@ -81,8 +82,19 @@ function useDeepResearch() {
       } else if (part.type === "reasoning") {
         reasoning += part.textDelta;
       }
+    }    if (reasoning) console.log(reasoning);
+
+    // 如果没有话题ID，且有JWT认证，则创建新话题并保存初始对话
+    if (!chatHistory.currentTopicId && chatHistory.isConnected && content) {
+      console.log('[useDeepResearch] 创建新话题并保存初始对话');
+      await chatHistory.createTopicWithInitialChat(question, content);
+      await chatHistory.markTopicInProgress();
+    } else if (chatHistory.currentTopicId) {
+      // 如果已有话题，保存AI回复
+      await chatHistory.saveQuestionsGenerated(content);
+    } else {
+      console.warn('[useDeepResearch] 跳过保存：需要JWT认证才能保存到数据中心');
     }
-    if (reasoning) console.log(reasoning);
   }
 
   async function writeReportPlan() {
@@ -512,8 +524,7 @@ function useDeepResearch() {
       } else if (part.type === "reasoning") {
         reasoning += part.textDelta;
       }
-    }
-    if (reasoning) console.log(reasoning);
+    }    if (reasoning) console.log(reasoning);
     if (sources.length > 0) {
       content +=
         "\n\n" +
@@ -527,6 +538,16 @@ function useDeepResearch() {
           .join("\n");
       updateFinalReport(content);
     }
+
+    // 保存最终报告到数据中心
+    if (chatHistory.currentTopicId && content) {
+      await chatHistory.saveFinalReport(content);
+      await chatHistory.markTopicCompleted({ 
+        finalReport: content,
+        completedAt: new Date().toISOString()
+      });
+    }
+
     const title = (content || "")
       .split("\n")[0]
       .replaceAll("#", "")

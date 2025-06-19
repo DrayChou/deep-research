@@ -17,6 +17,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import useDeepResearch from "@/hooks/useDeepResearch";
 import useAccurateTimer from "@/hooks/useAccurateTimer";
+import { useChatHistory } from "@/hooks/useChatHistory";
 import { useTaskStore } from "@/store/task";
 
 const MagicDown = dynamic(() => import("@/components/MagicDown"));
@@ -34,6 +35,7 @@ function Feedback() {
     start: accurateTimerStart,
     stop: accurateTimerStop,
   } = useAccurateTimer();
+  const chatHistory = useChatHistory();
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [isResearch, setIsResaerch] = useState<boolean>(false);
 
@@ -54,10 +56,15 @@ function Feedback() {
       accurateTimerStop();
     }
   }
-
   async function handleSubmit(values: z.infer<typeof formSchema>) {
     const { question, questions, setFeedback } = useTaskStore.getState();
     setFeedback(values.feedback);
+    
+    // 保存用户反馈到数据中心
+    if (chatHistory.currentTopicId && values.feedback) {
+      await chatHistory.saveFeedback(values.feedback);
+    }
+    
     const prompt = [
       `Initial Query: ${question}`,
       `Follow-up Questions: ${questions}`,

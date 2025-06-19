@@ -85,7 +85,7 @@ class ChatHistoryService {
    */
   async createDeepResearchTopic(query: string): Promise<string> {
     if (!this.baseUrl || !this.jwt) {
-      throw new Error('数据中心配置不完整');
+      throw new Error('数据中心配置不完整：需要数据中心URL和JWT令牌');
     }
 
     const topicData = {
@@ -164,6 +164,43 @@ class ChatHistoryService {
     } catch (error) {
       console.error('[ChatHistoryService] 加载历史记录失败:', error);
       return null;
+    }
+  }
+
+  /**
+   * 保存标准聊天消息（用户-助手对话）
+   */
+  async saveChatMessage(topicId: string, role: 'user' | 'assistant', content: string, metadata?: any): Promise<void> {
+    if (!this.baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存消息');
+      return;
+    }
+
+    const messageData = {
+      content,
+      role,
+      metadata: {
+        message_type: role === 'user' ? 'user_input' : 'assistant_response',
+        timestamp: new Date().toISOString(),
+        ...metadata
+      }
+    };
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/v1/chat/topics/${topicId}/messages`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(messageData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`保存消息失败: ${response.status}`);
+      }
+
+      const message = await response.json();
+      console.log('[ChatHistoryService] 聊天消息保存成功:', message.id);
+    } catch (error) {
+      console.error('[ChatHistoryService] 保存聊天消息失败:', error);
     }
   }
 

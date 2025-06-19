@@ -41,7 +41,7 @@ class DataCenterAPI {
   }
 
   /**
-   * 获取话题历史记录
+   * 获取话题历史记录（兼容旧方法，实际使用chatHistoryService）
    */
   async getTopicHistory(topicId: string): Promise<ApiResponse<TopicHistory>> {
     try {
@@ -50,7 +50,7 @@ class DataCenterAPI {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/topics/${topicId}/history`, {
+      const response = await fetch(`${baseUrl}/api/v1/chat/topics/${topicId}`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -83,7 +83,7 @@ class DataCenterAPI {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/topics`, {
+      const response = await fetch(`${baseUrl}/api/v1/chat/topics`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -107,48 +107,6 @@ class DataCenterAPI {
   }
 
   /**
-   * 保存研究结果到数据中心
-   */
-  async saveResearchResult(
-    topicId: string,
-    result: any,
-    metadata?: any
-  ): Promise<ApiResponse> {
-    try {
-      const baseUrl = this.getBaseUrl();
-      if (!baseUrl) {
-        throw new Error('数据中心URL未配置');
-      }
-
-      const response = await fetch(`${baseUrl}/api/topics/${topicId}/research`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({
-          result,
-          metadata,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data,
-      };
-    } catch (error) {
-      console.error('[DataCenterAPI] 保存研究结果失败:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '未知错误',
-      };
-    }
-  }
-
-  /**
    * 验证JWT令牌有效性
    */
   async validateToken(): Promise<ApiResponse<{ valid: boolean; user?: any }>> {
@@ -158,7 +116,7 @@ class DataCenterAPI {
         throw new Error('数据中心URL未配置');
       }
 
-      const response = await fetch(`${baseUrl}/api/auth/validate`, {
+      const response = await fetch(`${baseUrl}/api/v1/auth/me`, {
         method: 'GET',
         headers: this.getAuthHeaders(),
       });
@@ -170,7 +128,7 @@ class DataCenterAPI {
       const data = await response.json();
       return {
         success: true,
-        data,
+        data: { valid: true, user: data },
       };
     } catch (error) {
       console.error('[DataCenterAPI] JWT验证失败:', error);

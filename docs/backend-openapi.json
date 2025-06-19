@@ -383,6 +383,174 @@
                         }
                     }
                 }
+            },
+            "put": {
+                "tags": [
+                    "用户",
+                    "用户"
+                ],
+                "summary": "Update User",
+                "description": "更新用户信息 - 需要管理员权限",
+                "operationId": "update_user_api_v1_users__user_id__put",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "User Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserUpdate"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "用户",
+                    "用户"
+                ],
+                "summary": "Delete User",
+                "description": "删除用户 - 需要管理员权限",
+                "operationId": "delete_user_api_v1_users__user_id__delete",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "User Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{user_id}/reset-password": {
+            "post": {
+                "tags": [
+                    "用户",
+                    "用户"
+                ],
+                "summary": "Reset User Password",
+                "description": "重置用户密码 - 需要管理员权限",
+                "operationId": "reset_user_password_api_v1_users__user_id__reset_password_post",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "User Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "title": "Request Data"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/chat/topics": {
@@ -764,6 +932,84 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/v1/chat/stats": {
+            "get": {
+                "tags": [
+                    "聊天"
+                ],
+                "summary": "Get Topic Stats",
+                "description": "获取话题统计信息 - 需要管理员权限",
+                "operationId": "get_topic_stats_api_v1_chat_stats_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/chat/batch-delete": {
+            "post": {
+                "tags": [
+                    "聊天"
+                ],
+                "summary": "Batch Delete Topics",
+                "description": "批量删除话题 - 需要管理员权限",
+                "operationId": "batch_delete_topics_api_v1_chat_batch_delete_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "additionalProperties": true,
+                                "type": "object",
+                                "title": "Request Data"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
             }
         },
         "/api/v1/chat/topics/{topic_id}/messages": {
@@ -3298,6 +3544,786 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/system-configs": {
+            "get": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Get Configs",
+                "description": "获取所有配置",
+                "operationId": "get_configs_api_v1_system_configs_get",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "category",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "配置分类筛选",
+                            "title": "Category"
+                        },
+                        "description": "配置分类筛选"
+                    },
+                    {
+                        "name": "keys",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "指定配置键，逗号分隔",
+                            "title": "Keys"
+                        },
+                        "description": "指定配置键，逗号分隔"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Update Configs",
+                "description": "批量更新配置",
+                "operationId": "update_configs_api_v1_system_configs_post",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "title": "Body"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system-configs/{key}": {
+            "get": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Get Config By Key",
+                "description": "获取单个配置",
+                "operationId": "get_config_by_key_api_v1_system_configs__key__get",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Key"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Update Config By Key",
+                "description": "更新单个配置",
+                "operationId": "update_config_by_key_api_v1_system_configs__key__put",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Key"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "title": "Body"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system-configs/api-keys": {
+            "get": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Get Api Keys",
+                "description": "获取API密钥列表",
+                "operationId": "get_api_keys_api_v1_system_configs_api_keys_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Create Api Key",
+                "description": "创建API密钥",
+                "operationId": "create_api_key_api_v1_system_configs_api_keys_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "additionalProperties": true,
+                                "type": "object",
+                                "title": "Body"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/system-configs/api-keys/{key_id}": {
+            "delete": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Delete Api Key",
+                "description": "删除API密钥",
+                "operationId": "delete_api_key_api_v1_system_configs_api_keys__key_id__delete",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "key_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Key Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system-configs/llm/settings": {
+            "get": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Get Llm Settings",
+                "description": "获取LLM设置",
+                "operationId": "get_llm_settings_api_v1_system_configs_llm_settings_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Update Llm Settings",
+                "description": "更新LLM设置",
+                "operationId": "update_llm_settings_api_v1_system_configs_llm_settings_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "additionalProperties": true,
+                                "type": "object",
+                                "title": "Body"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/system-configs/deep-research-templates": {
+            "get": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Get Deep Research Templates",
+                "description": "获取Deep Research配置模板",
+                "operationId": "get_deep_research_templates_api_v1_system_configs_deep_research_templates_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Create Deep Research Template",
+                "description": "创建Deep Research配置模板",
+                "operationId": "create_deep_research_template_api_v1_system_configs_deep_research_templates_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "additionalProperties": true,
+                                "type": "object",
+                                "title": "Body"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/system-configs/deep-research-templates/{template_id}": {
+            "delete": {
+                "tags": [
+                    "配置管理",
+                    "配置管理"
+                ],
+                "summary": "Delete Deep Research Template",
+                "description": "删除Deep Research配置模板",
+                "operationId": "delete_deep_research_template_api_v1_system_configs_deep_research_templates__template_id__delete",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "template_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Template Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/stats": {
+            "get": {
+                "tags": [
+                    "系统监控",
+                    "系统监控"
+                ],
+                "summary": "Get System Stats",
+                "description": "获取系统统计信息",
+                "operationId": "get_system_stats_api_v1_admin_stats_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Get System Stats Api V1 Admin Stats Get"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/admin/activity-logs": {
+            "get": {
+                "tags": [
+                    "系统监控",
+                    "系统监控"
+                ],
+                "summary": "Get Activity Logs",
+                "description": "获取用户活动日志",
+                "operationId": "get_activity_logs_api_v1_admin_activity_logs_get",
+                "security": [
+                    {
+                        "OAuth2PasswordBearer": []
+                    },
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "skip",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Skip records",
+                            "default": 0,
+                            "title": "Skip"
+                        },
+                        "description": "Skip records"
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Limit records",
+                            "default": 50,
+                            "title": "Limit"
+                        },
+                        "description": "Limit records"
+                    },
+                    {
+                        "name": "user_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by user ID",
+                            "title": "User Id"
+                        },
+                        "description": "Filter by user ID"
+                    },
+                    {
+                        "name": "action_type",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by action type",
+                            "title": "Action Type"
+                        },
+                        "description": "Filter by action type"
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start date (YYYY-MM-DD)",
+                            "title": "Start Date"
+                        },
+                        "description": "Start date (YYYY-MM-DD)"
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End date (YYYY-MM-DD)",
+                            "title": "End Date"
+                        },
+                        "description": "End date (YYYY-MM-DD)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Get Activity Logs Api V1 Admin Activity Logs Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/health": {
+            "get": {
+                "tags": [
+                    "系统监控",
+                    "系统监控"
+                ],
+                "summary": "Get System Health",
+                "description": "获取系统健康状态",
+                "operationId": "get_system_health_api_v1_admin_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Get System Health Api V1 Admin Health Get"
                                 }
                             }
                         }
