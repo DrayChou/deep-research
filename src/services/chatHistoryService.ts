@@ -55,17 +55,18 @@ interface DeepResearchState {
 }
 
 class ChatHistoryService {
-  private baseUrl: string;
-  private jwt: string;
-
   constructor() {
-    this.baseUrl = this.getBaseUrl();
-    this.jwt = this.getJWT();
+    // 移除静态属性，改为动态获取
   }
 
-  private getBaseUrl(): string {
+  private get baseUrl(): string {
     const { dataBaseUrl } = useAuthStore.getState();
     return dataBaseUrl || process.env.NEXT_PUBLIC_DATA_CENTER_URL || '';
+  }
+
+  private get jwt(): string {
+    const { jwt } = useAuthStore.getState();
+    return jwt || '';
   }
 
   /**
@@ -90,11 +91,6 @@ class ChatHistoryService {
     }
     
     return `${base}/${path}`;
-  }
-
-  private getJWT(): string {
-    const { jwt } = useAuthStore.getState();
-    return jwt || '';
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -173,6 +169,8 @@ class ChatHistoryService {
    * 加载现有话题的历史记录
    */
   async loadTopicHistory(topicId: string): Promise<DeepResearchState | null> {
+    console.log('[ChatHistoryService] 检查配置 - baseUrl:', this.baseUrl, 'jwt:', this.jwt ? 'exists' : 'missing');
+    
     if (!this.baseUrl || !this.jwt) {
       console.warn('[ChatHistoryService] 数据中心配置不完整，跳过加载历史记录');
       return null;
