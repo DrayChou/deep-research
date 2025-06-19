@@ -188,7 +188,11 @@ class ChatHistoryService {
         throw new Error(`获取话题失败: ${topicResponse.status}`);
       }
 
-      const topic: ChatTopic = await topicResponse.json();
+      const topicResponseData = await topicResponse.json();
+      console.log('[ChatHistoryService] 话题数据:', topicResponseData);
+      
+      // 检查是否有data字段包装
+      const topic: ChatTopic = topicResponseData.data || topicResponseData;
 
       // 2. 获取消息列表
       const messagesResponse = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
@@ -199,7 +203,19 @@ class ChatHistoryService {
         throw new Error(`获取消息失败: ${messagesResponse.status}`);
       }
 
-      const messages: ChatMessage[] = await messagesResponse.json();
+      const messagesResponseData = await messagesResponse.json();
+      console.log('[ChatHistoryService] 消息数据:', messagesResponseData);
+      
+      // 检查是否有data字段包装，并确保是数组
+      let messages: ChatMessage[] = [];
+      if (messagesResponseData.data && Array.isArray(messagesResponseData.data)) {
+        messages = messagesResponseData.data;
+      } else if (Array.isArray(messagesResponseData)) {
+        messages = messagesResponseData;
+      } else {
+        console.warn('[ChatHistoryService] 消息数据格式异常:', messagesResponseData);
+        messages = [];
+      }
 
       // 3. 重构本地状态
       const state = this.reconstructLocalState(topic, messages);
@@ -212,21 +228,29 @@ class ChatHistoryService {
   }
 
   /**
-   * 保存标准聊天消息（用户-助手对话）
+   * 保存完整的研究状态快照
    */
-  async saveChatMessage(topicId: string, role: 'user' | 'assistant', content: string, metadata?: any): Promise<void> {
+  async saveResearchSnapshot(topicId: string, stage: string, taskStore: any): Promise<void> {
     if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存消息');
+      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存状态快照');
       return;
     }
 
     const messageData = {
-      content,
-      role,
-      metadata: {
-        message_type: role === 'user' ? 'user_input' : 'assistant_response',
+      content: `📊 **研究状态快照 - ${stage}**`,
+      role: 'assistant' as const,
+      message_metadata: {
+        message_type: 'research_snapshot',
         timestamp: new Date().toISOString(),
-        ...metadata
+        deep_research_data: {
+          stage: 'research_snapshot',
+          progress: this.calculateProgress(taskStore),
+          data: {
+            snapshot_stage: stage,
+            task_store: this.sanitizeData(taskStore),
+            timestamp: new Date().toISOString()
+          }
+        }
       }
     };
 
@@ -238,13 +262,124 @@ class ChatHistoryService {
       });
 
       if (!response.ok) {
-        throw new Error(`保存消息失败: ${response.status}`);
+        throw new Error(`保存状态快照失败: ${response.status}`);
       }
 
       const message = await response.json();
-      console.log('[ChatHistoryService] 聊天消息保存成功:', message.id);
+      console.log('[ChatHistoryService] 研究状态快照保存成功:', message.id);
     } catch (error) {
-      console.error('[ChatHistoryService] 保存聊天消息失败:', error);
+      console.error('[ChatHistoryService] 保存状态快照失败:', error);
+    }
+  }
+
+  /**
+   * 计算研究进度
+   */
+  private calculateProgress(input: any): number {
+    // 如果传入的是stage字符串
+    if (typeof input === 'string') {
+      const progressMap: Record<string, number> = {
+        'user_query': 10,
+        'questions_generated': 30,
+        'user_feedback': 40,
+        'search_progress': 70,
+        'final_report': 100
+      };
+      return progressMap[input] || 0;
+    }
+    
+    // 如果传入的是taskStore对象（兼容旧代码）
+    const taskStore = input;
+    let progress = 0;
+    if (taskStore.question) progress += 10;
+    if (taskStore.questions) progress += 20;
+    if (taskStore.feedback) progress += 10;
+    if (taskStore.tasks && taskStore.tasks.length > 0) {
+      const completed = taskStore.tasks.filter((t: any) => t.state === 'completed').length;
+      const total = taskStore.tasks.length;
+      progress += (completed / total) * 50;
+    }
+    if (taskStore.finalReport) progress += 10;
+    return Math.min(progress, 100);
+  }
+
+  /**
+   * 保存用户消息（简单格式）
+   */
+  async saveUserMessage(topicId: string, content: string, stage: string): Promise<void> {
+    if (!this.baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存用户消息');
+      return;
+    }
+
+    const messageData = {
+      content,
+      role: 'user' as const,
+      message_metadata: {
+        message_type: 'user_input',
+        stage,
+        timestamp: new Date().toISOString()
+      }
+    };
+
+    try {
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(messageData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`保存用户消息失败: ${response.status}`);
+      }
+
+      console.log('[ChatHistoryService] 用户消息保存成功');
+    } catch (error) {
+      console.error('[ChatHistoryService] 保存用户消息失败:', error);
+      // 简化处理：直接抛出错误，不做重试
+      throw error;
+    }
+  }
+
+  /**
+   * 保存AI阶段性回复（包含完整阶段数据）
+   */
+  async saveAIStageResponse(topicId: string, content: string, stage: string, stageData: any): Promise<void> {
+    if (!this.baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存AI回复');
+      return;
+    }
+
+    const messageData = {
+      content,
+      role: 'assistant' as const,
+      message_metadata: {
+        message_type: 'stage_response',
+        deep_research_data: {
+          stage,
+          data: stageData,
+          timestamp: new Date().toISOString(),
+          progress: this.calculateProgress(stage)
+        }
+      }
+    };
+
+    try {
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}/messages`), {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(messageData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`保存AI回复失败: ${response.status}`);
+      }
+
+      console.log('[ChatHistoryService] AI阶段性回复保存成功');
+    } catch (error) {
+      console.error('[ChatHistoryService] 保存AI回复失败:', error);
+      // 简化处理：直接抛出错误，不做重试
+      throw error;
     }
   }
 
@@ -329,7 +464,7 @@ class ChatHistoryService {
   }
 
   /**
-   * 重构本地状态
+   * 重构本地状态（简化版：只从AI阶段性回复重构）
    */
   private reconstructLocalState(topic: ChatTopic, messages: ChatMessage[]): DeepResearchState {
     const state: DeepResearchState = {
@@ -343,47 +478,69 @@ class ChatHistoryService {
     };
 
     // 从话题元数据获取初始问题
-    if (topic.topic_metadata.deep_research_data?.user_query) {
+    if (topic.topic_metadata && topic.topic_metadata.deep_research_data && topic.topic_metadata.deep_research_data?.user_query) {
       state.question = topic.topic_metadata.deep_research_data.user_query;
     }
 
-    // 按时间排序消息
-    const sortedMessages = messages.sort((a, b) => 
+    // 确保messages是数组，并按时间排序
+    const messageArray = Array.isArray(messages) ? messages : [];
+    console.log('[ChatHistoryService] 消息数组长度:', messageArray.length);
+    
+    if (messageArray.length === 0) {
+      console.warn('[ChatHistoryService] 没有找到消息记录');
+      return state;
+    }
+
+    const sortedMessages = messageArray.sort((a, b) => 
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
 
-    // 从消息中重构状态
+    // 只从AI的阶段性回复中重构状态
     for (const message of sortedMessages) {
-      const stageData = message.message_metadata?.deep_research_data;
-      if (!stageData) continue;
-
-      switch (stageData.stage) {
-        case 'questions_generated':
-          state.questions = stageData.data?.questions || message.content;
-          break;
-        case 'user_feedback':
-          state.feedback = message.content;
-          break;
-        case 'user_suggestion':
-          state.suggestion = message.content;
-          break;
-        case 'search_progress':
-          if (stageData.data?.tasks) {
-            state.tasks = stageData.data.tasks;
-          }
-          break;
-        case 'final_report':
-          state.finalReport = message.content;
-          break;
-        case 'resources_added':
-          if (stageData.data?.resources) {
-            state.resources = stageData.data.resources;
-          }
-          break;
+      if (message.role === 'assistant' && 
+          message.message_metadata?.message_type === 'stage_response' &&
+          message.message_metadata?.deep_research_data) {
+        
+        const stageData = message.message_metadata.deep_research_data;
+        this.applyStageToState(state, stageData.stage, message.content, stageData.data);
       }
     }
 
+    console.log('[ChatHistoryService] 从AI阶段性回复重构本地状态完成');
     return state;
+  }
+
+  /**
+   * 应用阶段数据到状态
+   */
+  private applyStageToState(state: DeepResearchState, stage: string, content: string, data?: any): void {
+    switch (stage) {
+      case 'user_query':
+        // 用户问题已从话题元数据获取
+        break;
+      case 'questions_generated':
+        state.questions = content;
+        break;
+      case 'user_feedback':
+        state.feedback = data?.feedback || content;
+        break;
+      case 'user_suggestion':
+        state.suggestion = data?.suggestion || content;
+        break;
+      case 'search_progress':
+        if (data?.tasks) {
+          state.tasks = data.tasks;
+        }
+        break;
+      case 'final_report':
+        state.finalReport = content;
+        break;
+      case 'resources_added':
+        if (data?.resources) {
+          state.resources = data.resources;
+        }
+        break;
+    }
   }
 
   /**
@@ -460,7 +617,7 @@ class ChatHistoryService {
   }
 
   /**
-   * 生成会话ID
+   * 生成会话 ID
    */
   private generateSessionId(): string {
     return `deep_research_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

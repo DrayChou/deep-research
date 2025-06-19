@@ -83,17 +83,13 @@ function useDeepResearch() {
         reasoning += part.textDelta;
       }
     }    if (reasoning) console.log(reasoning);
-
-    // 如果没有话题ID，且有JWT认证，则创建新话题并保存初始对话
+    
+    // 简化的保存逻辑：如果没有话题ID，且有认证，则创建新话题并保存初始对话
     if (!chatHistory.currentTopicId && chatHistory.isConnected && content) {
       console.log('[useDeepResearch] 创建新话题并保存初始对话');
       await chatHistory.createTopicWithInitialChat(question, content);
-      await chatHistory.markTopicInProgress();
-    } else if (chatHistory.currentTopicId) {
-      // 如果已有话题，保存AI回复
-      await chatHistory.saveQuestionsGenerated(content);
     } else {
-      console.warn('[useDeepResearch] 跳过保存：需要JWT认证才能保存到数据中心');
+      console.warn('[useDeepResearch] 跳过保存：无认证或已有话题');
     }
   }
 
@@ -536,16 +532,12 @@ function useDeepResearch() {
               }`
           )
           .join("\n");
-      updateFinalReport(content);
-    }
-
-    // 保存最终报告到数据中心
+      updateFinalReport(content);    }
+    
+    // 简化的保存逻辑：保存最终报告到数据中心
     if (chatHistory.currentTopicId && content) {
       await chatHistory.saveFinalReport(content);
-      await chatHistory.markTopicCompleted({ 
-        finalReport: content,
-        completedAt: new Date().toISOString()
-      });
+      await chatHistory.markTopicCompleted();
     }
 
     const title = (content || "")

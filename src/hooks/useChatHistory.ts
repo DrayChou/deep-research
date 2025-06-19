@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useAuthStore } from "@/store/auth";
 import { useTaskStore } from "@/store/task";
 import { chatHistoryService, type DeepResearchState } from "@/services/chatHistoryService";
@@ -70,39 +70,31 @@ export const useChatHistory = () => {
     }
   }, [applyHistoryToStore]);
 
-  // 创建新话题
-  const createNewTopic = useCallback(async (query: string): Promise<string | null> => {
-    try {
-      if (!authStore.jwt || !authStore.dataBaseUrl) {
-        console.warn('[useChatHistory] 缺少认证信息，无法创建云端话题');
-        return null;
-      }
-
-      const topicId = await chatHistoryService.createDeepResearchTopic(query);
-      authStore.setTopicId(topicId);
-      console.log('[useChatHistory] 新话题创建成功:', topicId);
-      return topicId;
-    } catch (error) {
-      console.error('[useChatHistory] 创建新话题失败:', error);
-      return null;
-    }
-  }, [authStore]);
-
-  // 保存聊天消息（用户 - 助手对话）
-  const saveChatMessage = useCallback(async (role: 'user' | 'assistant', content: string, metadata?: any) => {
+  // 保存完整的研究状态快照（重命名为saveStateSnapshot）
+  const saveStateSnapshot = useCallback(async (stage: string) => {
     if (!authStore.topicId || !authStore.jwt) {
-      console.log('[useChatHistory] 无话题ID或认证信息，跳过保存聊天消息');
+      console.log('[useChatHistory] 无话题ID或认证信息，跳过保存状态快照');
       return;
     }
 
     try {
-      await chatHistoryService.saveChatMessage(authStore.topicId, role, content, metadata);
+      const taskStore = useTaskStore.getState();
+      await chatHistoryService.saveResearchSnapshot(authStore.topicId, stage, taskStore.backup());
     } catch (error) {
-      console.error('[useChatHistory] 保存聊天消息失败:', error);
+      console.error('[useChatHistory] 保存状态快照失败:', error);
     }
   }, [authStore.topicId, authStore.jwt]);
 
-  // 创建话题并保存初始对话
+  // 显示JWT过期提示
+  const showJWTExpiredDialog = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      alert('认证已过期，请刷新页面重新登录');
+      // 可以考虑自动刷新页面
+      // window.location.reload();
+    }
+  }, []);
+
+  // 创建话题并保存初始对话（简化版）
   const createTopicWithInitialChat = useCallback(async (userQuery: string, aiResponse: string): Promise<string | null> => {
     try {
       if (!authStore.jwt || !authStore.dataBaseUrl) {
@@ -110,54 +102,90 @@ export const useChatHistory = () => {
         return null;
       }
 
+      console.log('[useChatHistory] 开始创建话题并保存初始对话');
+
       // 1. 创建话题
-      console.log('[useChatHistory] 开始创建话题...');
       const topicId = await chatHistoryService.createDeepResearchTopic(userQuery);
       
       if (!topicId) {
         throw new Error('话题创建失败：未返回话题ID');
       }
       
-      // 2. 保存话题 ID 到本地
       authStore.setTopicId(topicId);
       console.log('[useChatHistory] 新话题创建成功:', topicId);
 
-      // 3. 等待一下确保话题创建完成，然后保存用户问题
-      await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[useChatHistory] 保存用户问题...');
-      await chatHistoryService.saveChatMessage(topicId, 'user', userQuery, {
-        chat_type: 'deep_research',
-        stage: 'initial_query'
-      });
+      // 2. 串行保存消息（简化处理）
+      try {
+        // 保存用户问题
+        await chatHistoryService.saveUserMessage(topicId, userQuery, 'user_query');
+        
+        // 保存AI阶段性回复
+        await chatHistoryService.saveAIStageResponse(topicId, aiResponse, 'questions_generated', {
+          questions: aiResponse
+        });
 
-      // 4. 保存 AI 回复
-      console.log('[useChatHistory] 保存AI回复...');
-      await chatHistoryService.saveChatMessage(topicId, 'assistant', aiResponse, {
-        chat_type: 'deep_research',
-        stage: 'questions_generated'
-      });
+        console.log('[useChatHistory] 初始对话保存完成');
+        return topicId;
+        
+      } catch (saveError) {
+        console.error('[useChatHistory] 保存消息失败:', saveError);
+        // 简化错误处理：清理话题ID，让用户重试
+        authStore.setTopicId('');
+        throw saveError;
+      }
 
-      console.log('[useChatHistory] 初始对话已保存');
-      return topicId;
     } catch (error) {
-      console.error('[useChatHistory] 创建话题和保存初始对话失败:', error);
+      console.error('[useChatHistory] 创建话题失败:', error);
+      
+      // 简化错误处理：检查JWT过期
+      if (error instanceof Error && (error.message.includes('401') || error.message.includes('Unauthorized'))) {
+        showJWTExpiredDialog();
+      }
+      
       return null;
     }
-  }, [authStore]);
+  }, [authStore, showJWTExpiredDialog]);
 
-  // 保存研究阶段数据
-  const saveStageData = useCallback(async (stage: string, data: any) => {
-    if (!authStore.topicId || !authStore.jwt) {
-      console.log('[useChatHistory] 无话题ID或认证信息，跳过保存');
-      return;
-    }
-
+  // 简化版便捷方法
+  const saveUserQuery = useCallback(async (content: string) => {
+    if (!authStore.topicId) return;
     try {
-      await chatHistoryService.saveStageMessage(authStore.topicId, stage, data);
+      await chatHistoryService.saveUserMessage(authStore.topicId, content, 'user_query');
     } catch (error) {
-      console.error('[useChatHistory] 保存阶段数据失败:', error);
+      console.error('[useChatHistory] 保存用户问题失败:', error);
     }
-  }, [authStore.topicId, authStore.jwt]);
+  }, [authStore.topicId]);
+
+  const saveFeedback = useCallback(async (content: string) => {
+    if (!authStore.topicId) return;
+    try {
+      await chatHistoryService.saveAIStageResponse(authStore.topicId, content, 'user_feedback', {
+        feedback: content
+      });
+    } catch (error) {
+      console.error('[useChatHistory] 保存用户反馈失败:', error);
+    }
+  }, [authStore.topicId]);
+
+  const saveFinalReport = useCallback(async (content: string) => {
+    if (!authStore.topicId) return;
+    try {
+      await chatHistoryService.saveAIStageResponse(authStore.topicId, content, 'final_report', {
+        finalReport: content
+      });
+    } catch (error) {
+      console.error('[useChatHistory] 保存最终报告失败:', error);
+    }
+  }, [authStore.topicId]);
+
+  const markTopicCompleted = useCallback(async () => {
+    if (!authStore.topicId) return;
+    try {
+      await chatHistoryService.updateTopicStatus(authStore.topicId, 'completed');
+    } catch (error) {
+      console.error('[useChatHistory] 标记话题完成失败:', error);
+    }
+  }, [authStore.topicId]);
 
   // 更新话题状态
   const updateTopicStatus = useCallback(async (status: string, data?: any) => {
@@ -172,150 +200,28 @@ export const useChatHistory = () => {
     }
   }, [authStore.topicId, authStore.jwt]);
 
-  // 监听本地状态变化并自动保存
-  useEffect(() => {
-    if (!authStore.topicId || !authStore.jwt) {
-      return;
-    }
+  // 移除复杂的自动监听，简化处理（用户需要在必要时手动保存）
 
-    let previousState = {
-      questions: taskStore.questions,
-      feedback: taskStore.feedback,
-      suggestion: taskStore.suggestion,
-      tasks: taskStore.tasks,
-      finalReport: taskStore.finalReport,
-      resources: taskStore.resources
-    };
-
-    // 防抖定时器
-    let debounceTimer: NodeJS.Timeout;
-
-    const unsubscribe = useTaskStore.subscribe((state) => {
-      const currentState = {
-        questions: state.questions,
-        feedback: state.feedback,
-        suggestion: state.suggestion,
-        tasks: state.tasks,
-        finalReport: state.finalReport,
-        resources: state.resources
-      };
-
-      // 检查哪些字段发生了变化
-      const changes: { stage: string; data: any }[] = [];
-
-      if (currentState.questions !== previousState.questions && currentState.questions) {
-        changes.push({
-          stage: 'questions_generated',
-          data: { questions: currentState.questions }
-        });
-      }
-
-      if (currentState.feedback !== previousState.feedback && currentState.feedback) {
-        changes.push({
-          stage: 'user_feedback',
-          data: { feedback: currentState.feedback }
-        });
-      }
-
-      if (currentState.suggestion !== previousState.suggestion && currentState.suggestion) {
-        changes.push({
-          stage: 'user_suggestion',
-          data: { suggestion: currentState.suggestion }
-        });
-      }
-
-      if (JSON.stringify(currentState.tasks) !== JSON.stringify(previousState.tasks)) {
-        const completed = currentState.tasks.filter(t => t.state === 'completed').length;
-        const total = currentState.tasks.length;
-        changes.push({
-          stage: 'search_progress',
-          data: { 
-            tasks: currentState.tasks,
-            progress: total > 0 ? (completed / total) * 100 : 0,
-            completed,
-            total
-          }
-        });
-      }
-
-      if (currentState.finalReport !== previousState.finalReport && currentState.finalReport) {
-        changes.push({
-          stage: 'final_report',
-          data: { finalReport: currentState.finalReport }
-        });
-      }
-
-      if (JSON.stringify(currentState.resources) !== JSON.stringify(previousState.resources)) {
-        changes.push({
-          stage: 'resources_added',
-          data: { resources: currentState.resources }
-        });
-      }
-
-      // 如果有变化，延迟保存
-      if (changes.length > 0) {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(async () => {
-          for (const change of changes) {
-            await saveStageData(change.stage, change.data);
-          }
-        }, 2000); // 2秒防抖
-      }
-
-      previousState = currentState;
-    });
-
-    return () => {
-      clearTimeout(debounceTimer);
-      unsubscribe();
-    };
-  }, [authStore.topicId, authStore.jwt, saveStageData, taskStore]);
-
-  // 公共API
+  // 公共API（简化版）
   return {
-    // 初始化方法
+    // 核心方法
     initializeOrLoadTopic,
-    createNewTopic,
     createTopicWithInitialChat,
     
-    // 消息保存方法
-    saveChatMessage,
-    saveStageData,
-    updateTopicStatus,
+    // 简化的便捷方法
+    saveUserQuery,
+    saveFeedback, 
+    saveFinalReport,
+    markTopicCompleted,
     
-    // 状态管理方法
-    applyHistoryToStore,
+    // 状态管理
+    updateTopicStatus,
+    saveStateSnapshot,
     
     // 状态信息
+    currentTopicId: authStore.topicId,
     isConnected: process.env.NODE_ENV === 'development' 
       ? !!authStore.dataBaseUrl  // 开发环境只需要数据中心URL
       : !!(authStore.jwt && authStore.dataBaseUrl), // 生产环境需要JWT和数据中心URL
-    currentTopicId: authStore.topicId,
-    
-    // 便捷方法
-    saveUserQuery: (query: string) => saveChatMessage('user', query, { stage: 'user_query' }),
-    saveAiResponse: (response: string, stage?: string) => saveChatMessage('assistant', response, { stage }),
-    saveQuestionsGenerated: (questions: string) => saveChatMessage('assistant', questions, { stage: 'questions_generated' }),
-    saveFeedback: (feedback: string) => saveChatMessage('user', feedback, { stage: 'user_feedback' }),
-    saveSuggestion: (suggestion: string) => saveChatMessage('user', suggestion, { stage: 'user_suggestion' }),
-    saveFinalReport: (report: string) => saveChatMessage('assistant', report, { stage: 'final_report' }),
-    
-    // 研究进度保存（使用原有的阶段消息格式）
-    saveSearchProgress: (tasks: any[]) => {
-      const completed = tasks.filter(t => t.state === 'completed').length;
-      const total = tasks.length;
-      return saveStageData('search_progress', { 
-        tasks, 
-        progress: total > 0 ? (completed / total) * 100 : 0,
-        completed,
-        total 
-      });
-    },
-    saveResources: (resources: any[]) => saveStageData('resources_added', { resources }),
-    
-    // 话题状态更新
-    markTopicInProgress: () => updateTopicStatus('in_progress'),
-    markTopicCompleted: (finalData?: any) => updateTopicStatus('completed', finalData),
-    markTopicError: (error: string) => updateTopicStatus('error', { error })
   };
 };
