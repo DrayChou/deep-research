@@ -168,7 +168,7 @@ class ChatHistoryService {
   /**
    * 加载现有话题的历史记录
    */
-  async loadTopicHistory(topicId: string): Promise<DeepResearchState | null> {
+  async loadTopicHistory(topicId: string): Promise<{ state: DeepResearchState; topic: ChatTopic } | null> {
     console.log('[ChatHistoryService] 检查配置 - baseUrl:', this.baseUrl, 'jwt:', this.jwt ? 'exists' : 'missing');
     
     if (!this.baseUrl || !this.jwt) {
@@ -218,7 +218,7 @@ class ChatHistoryService {
       // 3. 重构本地状态
       const state = this.reconstructLocalState(topic, messages);
       console.log('[ChatHistoryService] 历史记录加载成功:', topicId);
-      return state;
+      return { state, topic };
     } catch (error) {
       console.error('[ChatHistoryService] 加载历史记录失败:', error);
       return null;
@@ -459,6 +459,46 @@ class ChatHistoryService {
     } catch (error) {
       console.error('[ChatHistoryService] 更新话题状态失败:', error);
     }
+  }
+
+  /**
+   * 更新话题标题
+   */
+  async updateTopicTitle(topicId: string, title: string): Promise<void> {
+    if (!this.baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过更新话题标题');
+      return;
+    }
+
+    try {
+      // 使用 PUT 接口直接更新话题标题
+      const response = await fetch(this.buildApiUrl(`chat/topics/${topicId}`), {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ title })
+      });
+
+      if (!response.ok) {
+        throw new Error(`更新话题标题失败: ${response.status}`);
+      }
+
+      console.log('[ChatHistoryService] 话题标题更新成功:', title);
+    } catch (error) {
+      console.error('[ChatHistoryService] 更新话题标题失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 基于问题生成话题标题
+   */
+  private generateTopicTitleFromQuestion(question: string): string {
+    // 截取前50个字符作为标题，并确保不会截断中文字符
+    let title = question.trim();
+    if (title.length > 50) {
+      title = title.substring(0, 47) + '...';
+    }
+    return title;
   }
 
   /**

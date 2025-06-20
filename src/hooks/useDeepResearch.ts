@@ -67,6 +67,8 @@ function useDeepResearch() {
     let content = "";
     let reasoning = "";
     taskStore.setQuestion(question);
+    // 设置title，这将触发useChatHistory中的监听器自动更新话题标题
+    // taskStore.setTitle(question);
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         thinkTagStreamProcessor.processChunk(
@@ -87,9 +89,12 @@ function useDeepResearch() {
     // 简化的保存逻辑：如果没有话题ID，且有认证，则创建新话题并保存初始对话
     if (!chatHistory.currentTopicId && chatHistory.isConnected && content) {
       console.log('[useDeepResearch] 创建新话题并保存初始对话');
-      await chatHistory.createTopicWithInitialChat(question, content);
+      const newTopicId = await chatHistory.createTopicWithInitialChat(question, content);
+      if (newTopicId) {
+        console.log('[useDeepResearch] 新话题创建完成');
+      }
     } else {
-      console.warn('[useDeepResearch] 跳过保存：无认证或已有话题');
+      console.warn('[useDeepResearch] 跳过保存：无认证或无内容');
     }
   }
 

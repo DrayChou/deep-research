@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useAuthStore } from "@/store/auth";
 import { useTaskStore } from "@/store/task";
 import { chatHistoryService, type DeepResearchState } from "@/services/chatHistoryService";
@@ -50,11 +50,15 @@ export const useChatHistory = () => {
       if (topicId) {
         // 加载现有话题的历史记录
         console.log('[useChatHistory] 正在加载话题历史记录：', topicId);
-        const historyState = await chatHistoryService.loadTopicHistory(topicId);
+        const historyResult = await chatHistoryService.loadTopicHistory(topicId);
         
-        if (historyState) {
+        if (historyResult) {
           // 应用历史状态到本地store
-          applyHistoryToStore(historyState);
+          applyHistoryToStore(historyResult.state);
+          
+          // 存储话题信息供后续使用
+          (window as any)._currentTopicInfo = historyResult.topic;
+          
           console.log('[useChatHistory] 历史记录已应用到本地状态');
           return topicId;
         } else {
@@ -201,6 +205,39 @@ export const useChatHistory = () => {
   }, [authStore.topicId, authStore.jwt]);
 
   // 移除复杂的自动监听，简化处理（用户需要在必要时手动保存）
+
+  // 监听title变化并自动更新话题标题
+  useEffect(() => {
+    if (!authStore.topicId || !authStore.jwt) return;
+
+    let previousTitle = useTaskStore.getState().title;
+
+    const unsubscribe = useTaskStore.subscribe((state) => {
+      const currentTitle = state.title;
+      
+      // 只在title发生变化且不为空时更新
+      if (currentTitle && currentTitle !== previousTitle && currentTitle.trim()) {
+        console.log('[useChatHistory] 检测到title变化，更新话题标题:', currentTitle);
+        
+        // 防抖处理，避免频繁更新
+        const timer = setTimeout(async () => {
+          try {
+            await chatHistoryService.updateTopicTitle(authStore.topicId, currentTitle);
+            console.log('[useChatHistory] 话题标题更新成功');
+          } catch (error) {
+            console.error('[useChatHistory] 更新话题标题失败:', error);
+          }
+        }, 1000); // 1秒防抖
+        
+        // 清理定时器
+        return () => clearTimeout(timer);
+      }
+      
+      previousTitle = currentTitle;
+    });
+
+    return unsubscribe;
+  }, [authStore.topicId, authStore.jwt]);
 
   // 公共API（简化版）
   return {
