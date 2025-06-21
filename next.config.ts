@@ -48,6 +48,7 @@ export default async function Config(phase: string) {
     env: {
       NEXT_PUBLIC_VERSION: pkg.version,
     },
+    basePath: process.env.NEXT_PUBLIC_BASE_PATH || "",
     transpilePackages: ["pdfjs-dist", "mermaid"],
   };
 
