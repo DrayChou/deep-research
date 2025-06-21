@@ -48,16 +48,18 @@ function Home() {
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     
-    // 检查是否需要JWT认证（如果配置了数据中心URL）
-    const envDataCenterUrl = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
-    if (envDataCenterUrl) {
-      useAuthStore.getState().setDataBaseUrl(envDataCenterUrl);
+    // 先检查环境变量，然后在检查 url 参数
+    if (process.env.NEXT_PUBLIC_DATA_CENTER_URL) {
+      useAuthStore.getState().setDataBaseUrl(process.env.NEXT_PUBLIC_DATA_CENTER_URL);
+    }
+    if (searchParams.get('dataBaseUrl')) {
+      useAuthStore.getState().setDataBaseUrl(searchParams.get('dataBaseUrl') || '');
     }
     
-    // 在处理URL参数之前，先检查现有JWT的用户信息
+    // 在处理 URL 参数之前，先检查现有 JWT 的用户信息
     const currentAuth = useAuthStore.getState();
     if (currentAuth.jwt && currentAuth.username) {
-      // 重新验证现有JWT的用户信息，检查是否有用户变更
+      // 重新验证现有 JWT 的用户信息，检查是否有用户变更
       const needsClearData = useAuthStore.getState().setJwtWithUserCheck(currentAuth.jwt);
       if (needsClearData) {
         console.log('[Page] 应用启动时检测到用户变更，清理本地数据');
