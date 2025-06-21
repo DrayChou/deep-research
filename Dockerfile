@@ -2,6 +2,20 @@ FROM node:18-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
+
+# 配置 Alpine 镜像源（简化版本）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装必要工具并设置时区
+RUN apk update && \
+    apk add --no-cache curl tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
+    rm -rf /var/cache/apk/*
+
+# 设置 npm 源为淘宝镜像
+RUN npm config set registry https://registry.npmmirror.coms
+
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
 
