@@ -13,7 +13,11 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json pnpm-lock.yaml ./
-RUN yarn global add pnpm && pnpm install --frozen-lockfile
+# 指定清华大学的 npm 镜像源
+RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/
+RUN yarn global add pnpm --frozen-lockfile
+# 使用 pnpm 安装依赖
+RUN pnpm install --frozen-lockfile
 
 # Rebuild the source code only when needed
 FROM base AS builder
