@@ -39,7 +39,7 @@ function Header() {
             <BookText className="h-4 w-4" />
           </Button>
           <Button
-            className="h-8 w-8 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+            className="h-8 w-8 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors hidden"
             title={t("setting.title")}
             variant="ghost"
             size="icon"
