@@ -123,8 +123,8 @@ function Invoke-Command {
     
     switch ($Cmd) {
         "dev" {
-            Write-Info "启动开发服务器 (使用 Turbopack)..."
-            Write-Info "访问地址: http://localhost:3000"
+            Write-Info "启动开发服务器..."
+            Write-Info "访问地址: http://localhost:3001"
             Write-Info "按 Ctrl+C 停止服务器"
             Write-Host ""
             pnpm run dev
@@ -162,7 +162,7 @@ function Invoke-Command {
         }
         "start" {
             Write-Info "启动生产服务器..."
-            Write-Info "访问地址: http://localhost:3000"
+            Write-Info "访问地址: http://localhost:3001"
             Write-Info "按 Ctrl+C 停止服务器"
             Write-Host ""
             pnpm run start

@@ -5,7 +5,10 @@
       "Bash(rm:*)",
       "Bash(deno task:*)",
       "Bash(timeout:*)",
-      "Bash(next dev:*)"
+      "Bash(next dev:*)",
+      "Bash(docker-compose:*)",
+      "Bash(taskkill:*)",
+      "Bash(rm -f Dockerfile.dev DOCKER_DEV.md .env.local)"
     ],
     "deny": []
   }

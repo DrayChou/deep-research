@@ -8,4 +8,8 @@ services:
     env_file:
       - .env
     ports:
-      - "3333:3000"
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
