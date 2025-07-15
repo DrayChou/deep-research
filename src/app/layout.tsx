@@ -73,6 +73,13 @@ export default function RootLayout({
   return (
     <html lang="en" dir="auto" suppressHydrationWarning>
       <head>
+        {/* Only add CSP in production or when not accessed through proxy */}
+        {process.env.NODE_ENV === 'production' && (
+          <meta
+            httpEquiv="Content-Security-Policy"
+            content="default-src 'self' http: https: data: blob: 'unsafe-inline'; script-src 'self' 'unsafe-inline' http: https:; style-src 'self' 'unsafe-inline' http: https:; connect-src 'self' http: https: ws: wss:;"
+          />
+        )}
         {HEAD_SCRIPTS ? <Script id="headscript">{HEAD_SCRIPTS}</Script> : null}
         <Debugger />
       </head>

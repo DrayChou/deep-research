@@ -50,6 +50,22 @@ export default async function Config(phase: string) {
     },
     basePath: process.env.NEXT_PUBLIC_BASE_PATH || "/dp2api",
     transpilePackages: ["pdfjs-dist", "mermaid"],
+    // Add security headers including CSP for development
+    async headers() {
+      return [
+        {
+          source: '/(.*)',
+          headers: [
+            {
+              key: 'Content-Security-Policy',
+              value: process.env.NODE_ENV === 'development' 
+                ? "default-src 'self' http: https: data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';"
+                : "default-src 'self' http: https: data: blob: 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+            }
+          ]
+        }
+      ];
+    },
   };
 
   if (BUILD_MODE === "export") {

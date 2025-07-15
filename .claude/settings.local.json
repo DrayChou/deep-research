@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(pnpm dev:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(deno task:*)",
+      "Bash(timeout:*)",
+      "Bash(next dev:*)"
     ],
     "deny": []
   }

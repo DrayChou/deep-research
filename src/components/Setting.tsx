@@ -22,6 +22,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Form,
@@ -256,6 +257,16 @@ function Setting({ open, onClose }: SettingProps) {
     },
   });
 
+  // Re-initialize form when dialog opens to capture any URL parameter changes
+  useLayoutEffect(() => {
+    if (open) {
+      const state = useSettingStore.getState();
+      const formData = omit(state, ["update"]);
+      // Reset form with current store values
+      form.reset(formData);
+    }
+  }, [open, form]);
+
   const isDisabledAIProvider = useCallback(
     (provider: string) => {
       const disabledAIProviders =
@@ -371,14 +382,15 @@ function Setting({ open, onClose }: SettingProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg max-lg:max-w-md print:hidden">
+      <DialogContent className="max-w-lg max-lg:max-w-md max-h-[80vh] print:hidden">
         <DialogHeader>
           <DialogTitle>{t("setting.title")}</DialogTitle>
           <DialogDescription>{t("setting.description")}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4">
-            <Tabs defaultValue="llm">
+            <ScrollArea className="max-h-[60vh] pr-4">
+              <Tabs defaultValue="llm">
               <TabsList className="w-full mb-2">
                 <TabsTrigger className="flex-1" value="llm">
                   {t("setting.model")}
@@ -3449,7 +3461,8 @@ function Setting({ open, onClose }: SettingProps) {
                   <ConfigUrlGenerator />
                 </div>
               </TabsContent>
-            </Tabs>
+              </Tabs>
+            </ScrollArea>
           </form>
         </Form>
         <DialogFooter className="mt-2 flex-row sm:justify-between sm:space-x-0 gap-3">

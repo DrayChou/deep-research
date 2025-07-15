@@ -9,11 +9,12 @@
   "bugs": "https://github.com/u14app/deep-research/issues",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev -p 3001",
+    "dev:turbo": "next dev --turbopack -p 3001",
     "build": "next build",
     "build:standalone": "cross-env NEXT_PUBLIC_BUILD_MODE=standalone next build",
     "build:export": "cross-env NEXT_PUBLIC_BUILD_MODE=export next build",
-    "start": "next start",
+    "start": "next start -p 3001",
     "lint": "next lint"
   },
   "dependencies": {
