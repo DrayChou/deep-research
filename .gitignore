@@ -46,3 +46,4 @@ public/swe-worker*
 
 .lh
 yarn.lock
+start-claude.ps1
