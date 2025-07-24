@@ -47,3 +47,5 @@ public/swe-worker*
 .lh
 yarn.lock
 start-claude.ps1
+qwen-code.ps1
+easy-llm-cli.ps1
