@@ -17,6 +17,12 @@ import {
 import { multiApiKeyPolling } from "@/utils/model";
 import { generateSignature } from "@/utils/signature";
 import { completePath } from "@/utils/url";
+import {
+  getProviderModelFields,
+  hasValidApiKey,
+  getProviderApiKey,
+  getProviderApiProxy,
+} from "@/utils/provider-config";
 
 function useModelProvider() {
   async function createModelProvider(model: string, settings?: any) {
@@ -175,125 +181,14 @@ function useModelProvider() {
 
   function getModel() {
     const { provider } = useSettingStore.getState();
-
-    switch (provider) {
-      case "google":
-        const { thinkingModel, networkingModel } = useSettingStore.getState();
-        return { thinkingModel, networkingModel };
-      case "openai":
-        const { openAIThinkingModel, openAINetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: openAIThinkingModel,
-          networkingModel: openAINetworkingModel,
-        };
-      case "anthropic":
-        const { anthropicThinkingModel, anthropicNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: anthropicThinkingModel,
-          networkingModel: anthropicNetworkingModel,
-        };
-      case "deepseek":
-        const { deepseekThinkingModel, deepseekNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: deepseekThinkingModel,
-          networkingModel: deepseekNetworkingModel,
-        };
-      case "xai":
-        const { xAIThinkingModel, xAINetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: xAIThinkingModel,
-          networkingModel: xAINetworkingModel,
-        };
-      case "mistral":
-        const { mistralThinkingModel, mistralNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: mistralThinkingModel,
-          networkingModel: mistralNetworkingModel,
-        };
-      case "azure":
-        const { azureThinkingModel, azureNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: azureThinkingModel,
-          networkingModel: azureNetworkingModel,
-        };
-      case "openrouter":
-        const { openRouterThinkingModel, openRouterNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: openRouterThinkingModel,
-          networkingModel: openRouterNetworkingModel,
-        };
-      case "openaicompatible":
-        const {
-          openAICompatibleThinkingModel,
-          openAICompatibleNetworkingModel,
-        } = useSettingStore.getState();
-        return {
-          thinkingModel: openAICompatibleThinkingModel,
-          networkingModel: openAICompatibleNetworkingModel,
-        };
-      case "pollinations":
-        const { pollinationsThinkingModel, pollinationsNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: pollinationsThinkingModel,
-          networkingModel: pollinationsNetworkingModel,
-        };
-      case "ollama":
-        const { ollamaThinkingModel, ollamaNetworkingModel } =
-          useSettingStore.getState();
-        return {
-          thinkingModel: ollamaThinkingModel,
-          networkingModel: ollamaNetworkingModel,
-        };
-      default:
-        throw new Error("Unsupported Provider: " + provider);
-    }
+    const config = useSettingStore.getState();
+    return getProviderModelFields(provider, config);
   }
 
   function hasApiKey(): boolean {
     const { provider } = useSettingStore.getState();
-
-    switch (provider) {
-      case "google":
-        const { apiKey } = useSettingStore.getState();
-        return apiKey.length > 0;
-      case "openai":
-        const { openAIApiKey } = useSettingStore.getState();
-        return openAIApiKey.length > 0;
-      case "anthropic":
-        const { anthropicApiKey } = useSettingStore.getState();
-        return anthropicApiKey.length > 0;
-      case "deepseek":
-        const { deepseekApiKey } = useSettingStore.getState();
-        return deepseekApiKey.length > 0;
-      case "xai":
-        const { xAIApiKey } = useSettingStore.getState();
-        return xAIApiKey.length > 0;
-      case "mistral":
-        const { mistralApiKey } = useSettingStore.getState();
-        return mistralApiKey.length > 0;
-      case "azure":
-        const { azureApiKey } = useSettingStore.getState();
-        return azureApiKey.length > 0;
-      case "openrouter":
-        const { openRouterApiKey } = useSettingStore.getState();
-        return openRouterApiKey.length > 0;
-      case "openaicompatible":
-        const { openAICompatibleApiKey } = useSettingStore.getState();
-        return openAICompatibleApiKey.length > 0;
-      case "pollinations":
-      case "ollama":
-        return true;
-      default:
-        throw new Error("Unsupported Provider: " + provider);
-    }
+    const config = useSettingStore.getState();
+    return hasValidApiKey(provider, config);
   }
 
   return {

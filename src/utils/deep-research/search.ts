@@ -139,24 +139,58 @@ export async function createSearchProvider({
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
   if (provider === "tavily") {
-    const response = await fetch(
-      `${completePath(baseURL || TAVILY_BASE_URL)}/search`,
-      {
-        method: "POST",
-        headers,
-        credentials: "omit",
-        body: JSON.stringify({
-          query,
-          search_depth: "advanced",
-          topic: scope || "general",
-          max_results: Number(maxResult),
-          include_images: true,
-          include_image_descriptions: true,
-          include_answer: false,
-          include_raw_content: true,
-        }),
+    const searchUrl = `${completePath(baseURL || TAVILY_BASE_URL)}/search`;
+    const requestBody = {
+      query,
+      search_depth: "advanced",
+      topic: scope || "general",
+      max_results: Number(maxResult),
+      include_images: true,
+      include_image_descriptions: true,
+      include_answer: false,
+      include_raw_content: true,
+    };
+    
+    // 临时调试：检查请求详情
+    console.log('[Search Provider] Tavily Request Details:', {
+      url: searchUrl,
+      method: 'POST',
+      headers: {
+        ...headers,
+        Authorization: headers.Authorization || 'Missing'
+      },
+      body: {
+        query,
+        max_results: Number(maxResult),
+        search_depth: "advanced",
+        include_raw_content: true,
+        include_answer: false,
+        include_domains: [],
+        exclude_domains: [],
+        include_images: true,
       }
-    );
+    });
+    
+    const response = await fetch(searchUrl, {
+      method: "POST",
+      headers,
+      credentials: "omit",
+      body: JSON.stringify(requestBody),
+    });
+    
+    // 临时调试：检查响应
+    console.log('[Search Provider] Tavily Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log('[Search Provider] Tavily Error Response:', errorText);
+      throw new Error(`Tavily search failed: ${response.status} ${response.statusText}`);
+    }
+    
     const { results = [], images = [] } = await response.json();
     return {
       sources: (results as TavilySearchResult[])

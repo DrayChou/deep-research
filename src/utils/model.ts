@@ -1,7 +1,11 @@
 import { shuffle } from "radash";
 
 export function multiApiKeyPolling(apiKeys = "") {
-  return shuffle(apiKeys.split(","))[0];
+  if (!apiKeys || typeof apiKeys !== 'string') {
+    return "";
+  }
+  const keys = apiKeys.split(",").filter(key => key.trim().length > 0);
+  return keys.length > 0 ? shuffle(keys)[0].trim() : "";
 }
 
 export function isThinkingModel(model: string) {

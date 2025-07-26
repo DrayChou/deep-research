@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import DeepResearch from "@/utils/deep-research";
 import { multiApiKeyPolling } from "@/utils/model";
+import { getProviderModelFields, hasValidApiKey } from "@/utils/provider-config";
 import {
-  getAIProviderBaseURL,
-  getAIProviderApiKey,
-  getSearchProviderBaseURL,
-  getSearchProviderApiKey,
+  optionalJwtAuthMiddleware,
+  getAIProviderConfig,
+  getSearchProviderConfig,
+  type UserConfig,
 } from "../utils";
 
 export const runtime = "edge";
@@ -21,18 +22,32 @@ export const preferredRegion = [
   "kix1",
 ];
 
+
 export async function POST(req: NextRequest) {
+  // 可选JWT验证和配置获取
+  const authResult = await optionalJwtAuthMiddleware(req);
+  if (!authResult.valid) {
+    // JWT验证失败，返回未授权错误
+    return NextResponse.json(
+      { error: authResult.error || 'Authentication failed', code: 401 },
+      { status: 401 }
+    );
+  }
+
+  const requestBody = await req.json();
+  
+  // 从请求体中获取参数（这些参数可以覆盖配置中的值）
   const {
     query,
-    provider,
-    thinkingModel,
-    taskModel,
-    searchProvider,
-    language,
-    maxResult,
+    provider: requestProvider,
+    thinkingModel: requestThinkingModel,
+    taskModel: requestTaskModel,
+    searchProvider: requestSearchProvider,
+    language = 'zh-CN',
+    maxResult = 50,
     enableCitationImage = true,
     enableReferences = true,
-  } = await req.json();
+  } = requestBody;
 
   const encoder = new TextEncoder();
   const readableStream = new ReadableStream({
@@ -47,19 +62,44 @@ export async function POST(req: NextRequest) {
         )
       );
 
+      // 获取AI提供商和搜索提供商的最终配置
+      const aiConfig = getAIProviderConfig(authResult.config || {}, req, requestProvider);
+      const searchConfig = getSearchProviderConfig(authResult.config || {}, req, requestSearchProvider);
+
+      // 根据 provider 从配置中获取对应的模型
+      const config = authResult.config || {};
+      const finalProvider = requestProvider || aiConfig.provider;
+      
+      // 获取 provider 对应的模型配置
+      const modelConfig = getProviderModelFields(finalProvider, config);
+      
+      // 请求参数可以覆盖配置中的值
+      const finalThinkingModel = requestThinkingModel || modelConfig.thinkingModel || 'gpt-4o';
+      const finalTaskModel = requestTaskModel || modelConfig.networkingModel || 'gpt-4o';
+      const finalSearchProvider = requestSearchProvider || searchConfig.searchProvider;
+
+      console.log('[SSE API] Final configuration:', {
+        provider: finalProvider,
+        thinkingModel: finalThinkingModel,
+        taskModel: finalTaskModel,
+        searchProvider: finalSearchProvider,
+        hasApiKey: hasValidApiKey(finalProvider, config),
+        hasSearchApiKey: !!searchConfig.apiKey
+      });
+
       const deepResearch = new DeepResearch({
         language,
         AIProvider: {
-          baseURL: getAIProviderBaseURL(provider),
-          apiKey: multiApiKeyPolling(getAIProviderApiKey(provider)),
-          provider,
-          thinkingModel,
-          taskModel,
+          baseURL: aiConfig.apiProxy,
+          apiKey: multiApiKeyPolling(aiConfig.apiKey),
+          provider: finalProvider,
+          thinkingModel: finalThinkingModel,
+          taskModel: finalTaskModel,
         },
         searchProvider: {
-          baseURL: getSearchProviderBaseURL(searchProvider),
-          apiKey: multiApiKeyPolling(getSearchProviderApiKey(searchProvider)),
-          provider: searchProvider,
+          baseURL: searchConfig.apiProxy,
+          apiKey: multiApiKeyPolling(searchConfig.apiKey),
+          provider: finalSearchProvider,
           maxResult,
         },
         onMessage: (event, data) => {
