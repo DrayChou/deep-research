@@ -20,8 +20,6 @@ import { completePath } from "@/utils/url";
 import {
   getProviderModelFields,
   hasValidApiKey,
-  getProviderApiKey,
-  getProviderApiProxy,
 } from "@/utils/provider-config";
 
 function useModelProvider() {

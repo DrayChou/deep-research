@@ -6,7 +6,6 @@ import {
   optionalJwtAuthMiddleware,
   getAIProviderConfig,
   getSearchProviderConfig,
-  type UserConfig,
 } from "../../utils";
 
 export const runtime = "edge";

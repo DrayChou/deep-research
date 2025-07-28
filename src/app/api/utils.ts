@@ -268,7 +268,7 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
       try {
         responseText = await response.text();
         console.log('[JWT Validation] Error response body:', responseText);
-      } catch (e) {
+      } catch {
         console.log('[JWT Validation] Could not read error response body');
       }
 
@@ -300,7 +300,7 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
     });
     
     // 处理API返回的数据结构，将数组转换为键值对对象
-    let configData: UserConfig = {};
+    const configData: UserConfig = {};
     if (responseData?.code === 200 && responseData?.data && Array.isArray(responseData.data)) {
       responseData.data.forEach((item: any) => {
         if (item.key && item.value !== undefined) {
@@ -407,9 +407,7 @@ export async function jwtAuthMiddleware(req: NextRequest): Promise<JwtValidation
  */
 export function getFinalConfig(
   jwtConfig: UserConfig, 
-  req: NextRequest, 
-  provider?: string,
-  searchProvider?: string
+  req: NextRequest
 ): UserConfig {
   const searchParams = req.nextUrl.searchParams;
   
@@ -502,7 +500,7 @@ export function getAIProviderConfig(jwtConfig: UserConfig, req: NextRequest, def
       const baseURL = getAIProviderBaseURL(provider);
       console.log(`[AI Config] Environment base URL for ${provider}:`, baseURL);
       return baseURL;
-    } catch (error) {
+    } catch {
       console.warn(`[AI Config] No base URL configured for provider: ${provider}`);
       return '';
     }
@@ -677,7 +675,7 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
       const baseURL = getSearchProviderBaseURL(provider);
       console.log(`[Search Config] Environment base URL for ${provider}:`, baseURL);
       return baseURL;
-    } catch (error) {
+    } catch {
       console.warn(`[Search Config] No base URL configured for search provider: ${provider}`);
       return '';
     }

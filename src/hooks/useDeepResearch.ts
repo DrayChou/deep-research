@@ -281,7 +281,7 @@ function useDeepResearch() {
             if (searchProvider !== "model") {
               try {
                 const results = await search(item.query);
-                sources = results.sources;
+                sources = results.sources || [];
                 images = results.images;
 
                 if (sources.length === 0) {

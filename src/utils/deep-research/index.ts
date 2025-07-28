@@ -259,7 +259,7 @@ class DeepResearch {
             ...this.options.searchProvider,
           });
 
-          sources = result.sources;
+          sources = result.sources || [];
           images = result.images;
         } catch (err) {
           const errorMessage = `[${provider}]: ${
