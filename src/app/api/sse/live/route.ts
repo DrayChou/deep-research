@@ -50,6 +50,23 @@ export async function GET(req: NextRequest) {
   // 获取AI和搜索提供商配置，其中包含了provider信息
   const aiConfig = getAIProviderConfig(authResult.config || {}, req);
   const searchConfig = getSearchProviderConfig(authResult.config || {}, req);
+  
+  // 额外的安全检查，确保provider不为空
+  if (!aiConfig.provider || aiConfig.provider.trim() === '') {
+    console.error('[SSE Live] AI provider is empty, this should not happen');
+    return NextResponse.json(
+      { error: 'AI provider configuration is missing', code: 500 },
+      { status: 500 }
+    );
+  }
+  
+  if (!searchConfig.searchProvider || searchConfig.searchProvider.trim() === '') {
+    console.error('[SSE Live] Search provider is empty, this should not happen');
+    return NextResponse.json(
+      { error: 'Search provider configuration is missing', code: 500 },
+      { status: 500 }
+    );
+  }
 
   // 根据 provider 从配置中获取对应的模型
   const config = authResult.config || {};

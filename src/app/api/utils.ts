@@ -468,6 +468,13 @@ export function getAIProviderConfig(jwtConfig: UserConfig, req: NextRequest, def
       provider = 'openaicompatible';
     }
     
+    // 额外的安全检查，确保provider不是空白字符串
+    provider = provider.trim();
+    if (provider === '') {
+      console.warn('[AI Config] Provider is empty after trimming, forcing openaicompatible');
+      provider = 'openaicompatible';
+    }
+    
     console.log('[AI Config] JWT mode - using JWT configuration only:', {
       jwtProvider: config.provider,
       defaultProvider,
@@ -633,6 +640,13 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
     // 确保searchProvider不为空字符串或null
     if (!searchProvider || searchProvider.trim() === '') {
       console.warn('[Search Config] Empty search provider in JWT config, using tavily as fallback');
+      searchProvider = 'tavily';
+    }
+    
+    // 额外的安全检查，确保searchProvider不是空白字符串
+    searchProvider = searchProvider.trim();
+    if (searchProvider === '') {
+      console.warn('[Search Config] Search provider is empty after trimming, forcing tavily');
       searchProvider = 'tavily';
     }
     

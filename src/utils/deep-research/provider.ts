@@ -15,6 +15,13 @@ export async function createAIProvider({
   model,
   settings,
 }: AIProviderOptions) {
+  // 确保provider不为空或未定义
+  if (!provider || provider.trim() === '') {
+    console.warn('Empty provider provided to createAIProvider, falling back to openaicompatible');
+    provider = 'openaicompatible';
+  }
+  
+  provider = provider.trim();
   if (provider === "google") {
     const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
     const google = createGoogleGenerativeAI({
