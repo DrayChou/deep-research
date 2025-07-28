@@ -19,7 +19,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the application
+# Build the application with standalone mode
+ENV NEXT_PUBLIC_BUILD_MODE=standalone
 RUN npm run build
 
 # Production image, copy all the files and run next
