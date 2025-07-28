@@ -118,6 +118,12 @@ export async function createAIProvider({
     });
     return ollama(model, settings);
   } else {
-    throw new Error("Unsupported Provider: " + provider);
+    console.warn("Unsupported AI Provider:", provider, "- falling back to openai");
+    const { createOpenAI } = await import("@ai-sdk/openai");
+    const openai = createOpenAI({
+      baseURL: baseURL,
+      apiKey: apiKey,
+    });
+    return openai(model, settings);
   }
 }

@@ -378,6 +378,12 @@ export async function createSearchProvider({
         }) as ImageSource[],
     };
   } else {
-    throw new Error("Unsupported Provider: " + provider);
+    console.warn("Unsupported Search Provider:", provider, "- falling back to model-based search");
+    
+    // 如果所有搜索提供商都不支持，返回空结果
+    return {
+      results: [],
+      images: []
+    };
   }
 }

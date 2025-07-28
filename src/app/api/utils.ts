@@ -100,7 +100,8 @@ export function getAIProviderBaseURL(provider: string) {
     case "ollama":
       return completePath(OLLAMA_API_BASE_URL, "/api");
     default:
-      throw new Error("Unsupported Provider: " + provider);
+      console.warn("Unsupported AI Provider:", provider, "- falling back to openaicompatible");
+      return completePath(OPENAI_COMPATIBLE_API_BASE_URL, "/v1");
   }
 }
 
@@ -128,7 +129,8 @@ export function getAIProviderApiKey(provider: string) {
     case "ollama":
       return "";
     default:
-      throw new Error("Unsupported Provider: " + provider);
+      console.warn("Unsupported AI Provider:", provider, "- returning empty API key");
+      return "";
   }
 }
 
@@ -147,7 +149,8 @@ export function getSearchProviderBaseURL(provider: string) {
     case "model":
       return "";
     default:
-      throw new Error("Unsupported Provider: " + provider);
+      console.warn("Unsupported Search Provider:", provider, "- falling back to tavily");
+      return TAVILY_API_BASE_URL;
   }
 }
 
@@ -165,7 +168,8 @@ export function getSearchProviderApiKey(provider: string) {
     case "model":
       return "";
     default:
-      throw new Error("Unsupported Provider: " + provider);
+      console.warn("Unsupported Search Provider:", provider, "- returning empty API key");
+      return "";
   }
 }
 
@@ -437,26 +441,53 @@ export function getFinalConfig(
 
 /**
  * 获取AI提供商的最终配置
- * 先从配置中获取provider，然后根据provider获取对应的配置
- * 优先级：JWT配置 > URL参数 > 环境变量
+ * 两种模式：
+ * 1. JWT模式：有JWT时完全使用JWT配置，不考虑URL参数
+ * 2. 老参数模式：无JWT时使用URL参数+环境变量，必须有有效的provider参数
  */
 export function getAIProviderConfig(jwtConfig: UserConfig, req: NextRequest, defaultProvider?: string) {
   console.log('[AI Config] Starting AI provider configuration...');
   
-  const config = getFinalConfig(jwtConfig, req);
+  // 检查是否有JWT配置（通过检查jwtConfig是否为空对象）
+  const hasJwtConfig = Object.keys(jwtConfig).length > 0;
+  console.log('[AI Config] JWT Config present:', hasJwtConfig);
   
-  // 先获取provider：URL参数 > JWT配置 > 传入的默认值
-  const provider = req.nextUrl.searchParams.get('provider') || 
-                   config.provider || 
-                   defaultProvider || 
-                   'openaicompatible';
+  let provider: string;
+  let apiKey: string;
+  let apiProxy: string;
   
-  console.log('[AI Config] Provider selection:', {
-    fromURL: req.nextUrl.searchParams.get('provider'),
-    fromJWT: config.provider,
-    defaultProvider,
-    selected: provider
-  });
+  if (hasJwtConfig) {
+    // 模式1：有JWT配置，完全使用JWT配置，不考虑URL参数
+    const config = getFinalConfig(jwtConfig, req);
+    
+    provider = config.provider || defaultProvider || 'openaicompatible';
+    
+    // 确保provider不为空字符串或null
+    if (!provider || provider.trim() === '') {
+      console.warn('[AI Config] Empty provider in JWT config, using openaicompatible as fallback');
+      provider = 'openaicompatible';
+    }
+    
+    console.log('[AI Config] JWT mode - using JWT configuration only:', {
+      jwtProvider: config.provider,
+      defaultProvider,
+      selected: provider
+    });
+  } else {
+    // 模式2：没有JWT配置，使用URL参数+环境变量模式
+    const urlProvider = req.nextUrl.searchParams.get('provider');
+    
+    if (!urlProvider || urlProvider.trim() === '') {
+      // 既没有JWT也没有有效的URL参数，这是无效状态
+      throw new Error('No valid configuration found. Either provide JWT token or URL parameters with environment variables.');
+    }
+    
+    provider = urlProvider;
+    
+    console.log('[AI Config] Legacy mode - using URL parameters + ENV variables:', {
+      urlProvider: provider
+    });
+  }
   
   // 安全获取环境变量baseURL
   const getEnvBaseURL = (provider: string) => {
@@ -470,113 +501,161 @@ export function getAIProviderConfig(jwtConfig: UserConfig, req: NextRequest, def
     }
   };
   
-  // 根据provider获取对应的配置
-  let apiKey = '';
-  let apiProxy = '';
-  
-  // console.log('[AI Config] Available JWT config keys:', Object.keys(config)); // 简化日志
-  
-  switch (provider) {
-    case 'google':
-      apiKey = config.googleApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.googleApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'openai':
-      apiKey = config.openAIApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.openAIApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'anthropic':
-      apiKey = config.anthropicApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.anthropicApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'deepseek':
-      apiKey = config.deepseekApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.deepseekApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'openrouter':
-      apiKey = config.openRouterApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.openRouterApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'xai':
-      apiKey = config.xAIApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.xAIApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'mistral':
-      apiKey = config.mistralApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.mistralApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'azure':
-      apiKey = config.azureApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.azureApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'openaicompatible':
-      console.log('[AI Config] Processing openaicompatible provider:', {
-        jwtApiKey: config.openAICompatibleApiKey ? 'Present' : 'Missing',
-        jwtApiProxy: config.openAICompatibleApiProxy ? 'Present' : 'Missing',
-        fallbackApiKey: config.apiKey ? 'Present' : 'Missing',
-        fallbackApiProxy: config.apiProxy ? 'Present' : 'Missing',
-        envUrl: process.env.OPENAI_COMPATIBLE_API_BASE_URL ? 'Present' : 'Missing'
-      });
-      
-      apiKey = config.openAICompatibleApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.openAICompatibleApiProxy || config.apiProxy;
-      
-      // openaicompatible需要特殊处理，因为默认环境变量可能为空
-      if (!apiProxy) {
-        const envUrl = process.env.OPENAI_COMPATIBLE_API_BASE_URL;
-        console.log('[AI Config] No proxy in JWT config, checking env var:', envUrl || 'Not set');
-        if (envUrl) {
-          apiProxy = getEnvBaseURL(provider);
-        }
-      }
-      break;
-    case 'pollinations':
-      apiKey = config.pollinationsApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.pollinationsApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    case 'ollama':
-      apiKey = config.ollamaApiKey || config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.ollamaApiProxy || config.apiProxy || getEnvBaseURL(provider);
-      break;
-    default:
-      // 未知provider，使用通用配置
-      apiKey = config.apiKey || getAIProviderApiKey(provider);
-      apiProxy = config.apiProxy || getEnvBaseURL(provider);
+  if (hasJwtConfig) {
+    // 模式1：有JWT配置，完全使用JWT配置
+    const config = getFinalConfig(jwtConfig, req);
+    
+    switch (provider) {
+      case 'google':
+        apiKey = config.googleApiKey || config.apiKey || '';
+        apiProxy = config.googleApiProxy || config.apiProxy || '';
+        break;
+      case 'openai':
+        apiKey = config.openAIApiKey || config.apiKey || '';
+        apiProxy = config.openAIApiProxy || config.apiProxy || '';
+        break;
+      case 'anthropic':
+        apiKey = config.anthropicApiKey || config.apiKey || '';
+        apiProxy = config.anthropicApiProxy || config.apiProxy || '';
+        break;
+      case 'deepseek':
+        apiKey = config.deepseekApiKey || config.apiKey || '';
+        apiProxy = config.deepseekApiProxy || config.apiProxy || '';
+        break;
+      case 'openrouter':
+        apiKey = config.openRouterApiKey || config.apiKey || '';
+        apiProxy = config.openRouterApiProxy || config.apiProxy || '';
+        break;
+      case 'xai':
+        apiKey = config.xAIApiKey || config.apiKey || '';
+        apiProxy = config.xAIApiProxy || config.apiProxy || '';
+        break;
+      case 'mistral':
+        apiKey = config.mistralApiKey || config.apiKey || '';
+        apiProxy = config.mistralApiProxy || config.apiProxy || '';
+        break;
+      case 'azure':
+        apiKey = config.azureApiKey || config.apiKey || '';
+        apiProxy = config.azureApiProxy || config.apiProxy || '';
+        break;
+      case 'openaicompatible':
+        console.log('[AI Config] Processing openaicompatible provider (JWT mode):', {
+          jwtApiKey: config.openAICompatibleApiKey ? 'Present' : 'Missing',
+          jwtApiProxy: config.openAICompatibleApiProxy ? 'Present' : 'Missing',
+          fallbackApiKey: config.apiKey ? 'Present' : 'Missing',
+          fallbackApiProxy: config.apiProxy ? 'Present' : 'Missing'
+        });
+        
+        apiKey = config.openAICompatibleApiKey || config.apiKey || '';
+        apiProxy = config.openAICompatibleApiProxy || config.apiProxy || '';
+        break;
+      case 'pollinations':
+        apiKey = config.pollinationsApiKey || config.apiKey || '';
+        apiProxy = config.pollinationsApiProxy || config.apiProxy || '';
+        break;
+      case 'ollama':
+        apiKey = config.ollamaApiKey || config.apiKey || '';
+        apiProxy = config.ollamaApiProxy || config.apiProxy || '';
+        break;
+      default:
+        // 未知provider，使用通用配置
+        apiKey = config.apiKey || '';
+        apiProxy = config.apiProxy || '';
+    }
+    
+    // JWT模式下，检查关键配置是否缺失
+    if (!apiKey && ['google', 'openai', 'anthropic', 'deepseek', 'openrouter', 'xai', 'mistral', 'azure', 'openaicompatible'].includes(provider)) {
+      console.warn(`[AI Config] JWT mode: Missing API key for provider ${provider}`);
+    }
+    if (!apiProxy && provider !== 'pollinations' && provider !== 'ollama') {
+      console.warn(`[AI Config] JWT mode: Missing API proxy for provider ${provider}`);
+    }
+  } else {
+    // 模式2：没有JWT配置，完全依赖环境变量（URL参数指定provider，env提供apiKey和baseURL）
+    apiKey = getAIProviderApiKey(provider);
+    apiProxy = getEnvBaseURL(provider);
+    
+    console.log('[AI Config] Legacy mode (URL params + ENV):', {
+      provider: provider,
+      envApiKey: apiKey ? 'Present' : 'Missing',
+      envApiProxy: apiProxy ? 'Present' : 'Missing'
+    });
+    
+    // 老参数模式下，检查环境变量是否配置正确
+    if (!apiKey && ['google', 'openai', 'anthropic', 'deepseek', 'openrouter', 'xai', 'mistral', 'azure', 'openaicompatible'].includes(provider)) {
+      throw new Error(`Legacy mode: Missing environment variable API key for provider ${provider}. Please check your .env configuration.`);
+    }
+    if (!apiProxy && provider !== 'pollinations' && provider !== 'ollama') {
+      throw new Error(`Legacy mode: Missing environment variable API base URL for provider ${provider}. Please check your .env configuration.`);
+    }
   }
   
   console.log('[AI Config] Final AI configuration:', {
     provider,
     apiKey: apiKey ? `${apiKey.substring(0, 10)}...` : 'Not configured',
     apiProxy: apiProxy || 'Not configured',
-    hasOtherConfig: Object.keys(config).length > 0
+    hasJwtConfig
   });
   
-  // 确保我们的 apiKey 和 apiProxy 不被 config 覆盖
-  return { ...config, provider, apiKey, apiProxy };
+  if (hasJwtConfig) {
+    // 有JWT配置，返回合并后的配置
+    const config = getFinalConfig(jwtConfig, req);
+    return { ...config, provider, apiKey, apiProxy };
+  } else {
+    // 没有JWT配置，只返回基本的配置
+    return { provider, apiKey, apiProxy };
+  }
 }
 
 /**
  * 获取搜索提供商的最终配置
- * 先从配置中获取searchProvider，然后根据searchProvider获取对应的配置
- * 优先级：JWT配置 > URL参数 > 环境变量
+ * 两种模式：
+ * 1. JWT模式：有JWT时完全使用JWT配置，不考虑URL参数
+ * 2. 老参数模式：无JWT时使用URL参数+环境变量，必须有有效的searchProvider参数
  */
 export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest, defaultSearchProvider?: string) {
   console.log('[Search Config] Starting search provider configuration...');
   
-  const config = getFinalConfig(jwtConfig, req);
+  // 检查是否有JWT配置
+  const hasJwtConfig = Object.keys(jwtConfig).length > 0;
+  console.log('[Search Config] JWT Config present:', hasJwtConfig);
   
-  // 先获取searchProvider：URL参数 > JWT配置 > 传入的默认值
-  const searchProvider = req.nextUrl.searchParams.get('searchProvider') || 
-                         config.searchProvider || 
-                         defaultSearchProvider || 
-                         'tavily';
+  let searchProvider: string;
+  let apiKey: string;
+  let apiProxy: string;
   
-  console.log('[Search Config] Search provider selection:', {
-    fromURL: req.nextUrl.searchParams.get('searchProvider'),
-    fromJWT: config.searchProvider,
-    defaultSearchProvider,
-    selected: searchProvider
-  });
+  if (hasJwtConfig) {
+    // 模式1：有JWT配置，完全使用JWT配置，不考虑URL参数
+    const config = getFinalConfig(jwtConfig, req);
+    
+    searchProvider = config.searchProvider || defaultSearchProvider || 'tavily';
+    
+    // 确保searchProvider不为空字符串或null
+    if (!searchProvider || searchProvider.trim() === '') {
+      console.warn('[Search Config] Empty search provider in JWT config, using tavily as fallback');
+      searchProvider = 'tavily';
+    }
+    
+    console.log('[Search Config] JWT mode - using JWT configuration only:', {
+      jwtSearchProvider: config.searchProvider,
+      defaultSearchProvider,
+      selected: searchProvider
+    });
+  } else {
+    // 模式2：没有JWT配置，使用URL参数+环境变量模式
+    const urlSearchProvider = req.nextUrl.searchParams.get('searchProvider');
+    
+    if (!urlSearchProvider || urlSearchProvider.trim() === '') {
+      // 既没有JWT也没有有效的URL参数，这是无效状态
+      throw new Error('No valid search configuration found. Either provide JWT token or URL parameters with environment variables.');
+    }
+    
+    searchProvider = urlSearchProvider;
+    
+    console.log('[Search Config] Legacy mode - using URL parameters + ENV variables:', {
+      urlSearchProvider: searchProvider
+    });
+  }
   
   // 安全获取环境变量baseURL
   const getEnvSearchBaseURL = (provider: string) => {
@@ -590,46 +669,84 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
     }
   };
   
-  // 根据searchProvider获取对应的配置
-  let apiKey = '';
-  let apiProxy = '';
-  
-  switch (searchProvider) {
-    case 'tavily':
-      apiKey = config.tavilyApiKey || config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.tavilyApiProxy || config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
-      break;
-    case 'firecrawl':
-      apiKey = config.firecrawlApiKey || config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.firecrawlApiProxy || config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
-      break;
-    case 'exa':
-      apiKey = config.exaApiKey || config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.exaApiProxy || config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
-      break;
-    case 'bocha':
-      apiKey = config.bochaApiKey || config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.bochaApiProxy || config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
-      break;
-    case 'searxng':
-      apiKey = config.searxngApiKey || config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.searxngApiProxy || config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
-      break;
-    default:
-      // 未知searchProvider，使用通用配置
-      apiKey = config.searchApiKey || getSearchProviderApiKey(searchProvider);
-      apiProxy = config.searchApiProxy || getEnvSearchBaseURL(searchProvider);
+  if (hasJwtConfig) {
+    // 模式1：有JWT配置，完全使用JWT配置
+    const config = getFinalConfig(jwtConfig, req);
+    
+    switch (searchProvider) {
+      case 'tavily':
+        apiKey = config.tavilyApiKey || config.searchApiKey || '';
+        apiProxy = config.tavilyApiProxy || config.searchApiProxy || '';
+        break;
+      case 'firecrawl':
+        apiKey = config.firecrawlApiKey || config.searchApiKey || '';
+        apiProxy = config.firecrawlApiProxy || config.searchApiProxy || '';
+        break;
+      case 'exa':
+        apiKey = config.exaApiKey || config.searchApiKey || '';
+        apiProxy = config.exaApiProxy || config.searchApiProxy || '';
+        break;
+      case 'bocha':
+        apiKey = config.bochaApiKey || config.searchApiKey || '';
+        apiProxy = config.bochaApiProxy || config.searchApiProxy || '';
+        break;
+      case 'searxng':
+        apiKey = config.searxngApiKey || config.searchApiKey || '';
+        apiProxy = config.searxngApiProxy || config.searchApiProxy || '';
+        break;
+      case 'model':
+        // model模式不需要API key和proxy
+        apiKey = '';
+        apiProxy = '';
+        break;
+      default:
+        // 未知searchProvider，使用通用配置
+        apiKey = config.searchApiKey || '';
+        apiProxy = config.searchApiProxy || '';
+    }
+    
+    // JWT模式下，检查关键配置是否缺失
+    if (!apiKey && ['tavily', 'firecrawl', 'exa', 'bocha'].includes(searchProvider)) {
+      console.warn(`[Search Config] JWT mode: Missing API key for search provider ${searchProvider}`);
+    }
+    if (!apiProxy && ['tavily', 'firecrawl', 'exa', 'bocha', 'searxng'].includes(searchProvider)) {
+      console.warn(`[Search Config] JWT mode: Missing API proxy for search provider ${searchProvider}`);
+    }
+  } else {
+    // 模式2：没有JWT配置，完全依赖环境变量（URL参数指定searchProvider，env提供apiKey和baseURL）
+    apiKey = getSearchProviderApiKey(searchProvider);
+    apiProxy = getEnvSearchBaseURL(searchProvider);
+    
+    console.log('[Search Config] Legacy mode (URL params + ENV):', {
+      searchProvider: searchProvider,
+      envSearchApiKey: apiKey ? 'Present' : 'Missing',
+      envSearchApiProxy: apiProxy ? 'Present' : 'Missing'
+    });
+    
+    // 老参数模式下，检查环境变量是否配置正确
+    if (!apiKey && ['tavily', 'firecrawl', 'exa', 'bocha'].includes(searchProvider)) {
+      throw new Error(`Legacy mode: Missing environment variable API key for search provider ${searchProvider}. Please check your .env configuration.`);
+    }
+    if (!apiProxy && ['tavily', 'firecrawl', 'exa', 'bocha', 'searxng'].includes(searchProvider)) {
+      throw new Error(`Legacy mode: Missing environment variable API base URL for search provider ${searchProvider}. Please check your .env configuration.`);
+    }
   }
   
   console.log('[Search Config] Final search configuration:', {
     searchProvider,
     apiKey: apiKey ? `${apiKey.substring(0, 10)}...` : 'Not configured',
     apiProxy: apiProxy || 'Not configured',
-    hasOtherConfig: Object.keys(config).length > 0
+    hasJwtConfig
   });
   
-  // 确保我们的 apiKey 和 apiProxy 不被 config 覆盖
-  return { ...config, searchProvider, apiKey, apiProxy };
+  if (hasJwtConfig) {
+    // 有JWT配置，返回合并后的配置
+    const config = getFinalConfig(jwtConfig, req);
+    return { ...config, searchProvider, apiKey, apiProxy };
+  } else {
+    // 没有JWT配置，只返回基本的配置
+    return { searchProvider, apiKey, apiProxy };
+  }
 }
 
 /**
