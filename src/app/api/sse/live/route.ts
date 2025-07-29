@@ -182,6 +182,10 @@ export async function GET(req: NextRequest) {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
       "Access-Control-Allow-Origin": "*",
+
+      // 响应标题里输出当前使用的模型名称
+      "X-Model-Name": `${aiConfig.provider} (${thinkingModel}, ${taskModel})`,
+      "X-Search-Provider": searchConfig.searchProvider || "Not configured",
     },
   });
 }
