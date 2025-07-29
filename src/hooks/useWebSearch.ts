@@ -3,7 +3,7 @@ import {
   createSearchProvider,
   type SearchProviderOptions,
 } from "@/utils/deep-research/search";
-import { multiApiKeyPolling, markApiKeyFailed, getApiKeyStatusSummary, resetApiKeyStatus } from "@/utils/model";
+import { multiApiKeyPolling, markApiKeyFailed } from "@/utils/model";
 import { generateSignature } from "@/utils/signature";
 
 function useWebSearch() {

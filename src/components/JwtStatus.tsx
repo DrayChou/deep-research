@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/auth";
 
 function JwtStatus() {
   const { t } = useTranslation();
-  const { jwt, dataBaseUrl } = useAuthStore();
+  const { jwt } = useAuthStore();
   const { validationResult, clearAuth } = useJwtAuth();
 
   // 如果没有JWT或JWT验证失败，显示全屏错误界面

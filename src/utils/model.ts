@@ -107,7 +107,7 @@ function inferProviderFromCallStack(): string {
     if (stack.includes('searxng')) return 'searxng';
     
     return '';
-  } catch (error) {
+  } catch {
     return '';
   }
 }
