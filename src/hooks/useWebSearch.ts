@@ -3,7 +3,7 @@ import {
   createSearchProvider,
   type SearchProviderOptions,
 } from "@/utils/deep-research/search";
-import { multiApiKeyPolling } from "@/utils/model";
+import { multiApiKeyPolling, markApiKeyFailed, getApiKeyStatusSummary, resetApiKeyStatus } from "@/utils/model";
 import { generateSignature } from "@/utils/signature";
 
 function useWebSearch() {
@@ -73,7 +73,41 @@ function useWebSearch() {
     if (mode === "proxy") {
       options.apiKey = generateSignature(accessPassword, Date.now());
     }
-    return createSearchProvider(options);
+    
+    try {
+      return await createSearchProvider(options);
+    } catch (error) {
+      // 如果是 key 相关的错误，标记当前 key 失败
+      if (error instanceof Error) {
+        const usedKey = options.apiKey;
+        if (usedKey && mode === "local") {
+          // 从错误信息中提取状态码
+          let statusCode = 0;
+          const errorMessage = error.message;
+          
+          // 使用正则表达式提取状态码
+          const statusCodeMatch = errorMessage.match(/:\s*(\d{3})/);
+          if (statusCodeMatch) {
+            statusCode = parseInt(statusCodeMatch[1], 10);
+          } else if (errorMessage.includes('432')) {
+            statusCode = 432;
+          } else if (errorMessage.includes('429')) {
+            statusCode = 429;
+          } else if (errorMessage.includes('401')) {
+            statusCode = 401;
+          } else if (errorMessage.includes('403')) {
+            statusCode = 403;
+          } else if (errorMessage.includes('500')) {
+            statusCode = 500;
+          } else if (errorMessage.includes('API key') || errorMessage.includes('No available API keys')) {
+            statusCode = 401; // 默认为认证错误
+          }
+          
+          markApiKeyFailed(usedKey, statusCode);
+        }
+      }
+      throw error;
+    }
   }
 
   return { search };

@@ -9,6 +9,24 @@ import { rewritingPrompt } from "@/constants/prompts";
 import { completePath } from "@/utils/url";
 import { pick, sort } from "radash";
 
+// 通用错误处理函数
+async function handleSearchProviderError(
+  provider: string,
+  apiKey: string,
+  response: Response
+): Promise<void> {
+  try {
+    const { markApiKeyFailed } = await import('@/utils/model');
+    if (apiKey && !response.ok) {
+      // 根据状态码标记 key 失败
+      markApiKeyFailed(apiKey, response.status);
+      console.log(`[Search Provider] Marked ${provider} API key as failed with status ${response.status}`);
+    }
+  } catch (importError) {
+    console.warn(`[Search Provider] Failed to import markApiKeyFailed for ${provider}:`, importError);
+  }
+}
+
 type TavilySearchResult = {
   title: string;
   url: string;
@@ -188,9 +206,12 @@ export async function createSearchProvider({
     if (!response.ok) {
       const errorText = await response.text();
       console.log('[Search Provider] Tavily Error Response:', errorText);
+      
+      // 使用通用错误处理函数
+      await handleSearchProviderError('tavily', apiKey, response);
+      
       throw new Error(`Tavily search failed: ${response.status} ${response.statusText}`);
     }
-    
     const { results = [], images = [] } = await response.json();
     return {
       sources: (results as TavilySearchResult[])
@@ -223,6 +244,12 @@ export async function createSearchProvider({
         }),
       }
     );
+    
+    if (!response.ok) {
+      await handleSearchProviderError('firecrawl', apiKey, response);
+      throw new Error(`Firecrawl search failed: ${response.status} ${response.statusText}`);
+    }
+    
     const { data = [] } = await response.json();
     return {
       sources: (data as FirecrawlDocument[])
@@ -258,6 +285,12 @@ export async function createSearchProvider({
         }),
       }
     );
+    
+    if (!response.ok) {
+      await handleSearchProviderError('exa', apiKey, response);
+      throw new Error(`Exa search failed: ${response.status} ${response.statusText}`);
+    }
+    
     const { results = [] } = await response.json();
     const images: ImageSource[] = [];
     return {
@@ -295,6 +328,12 @@ export async function createSearchProvider({
         }),
       }
     );
+    
+    if (!response.ok) {
+      await handleSearchProviderError('bocha', apiKey, response);
+      throw new Error(`Bocha search failed: ${response.status} ${response.statusText}`);
+    }
+    
     const { data = {} } = await response.json();
     const results = data.webPages?.value || [];
     const imageResults = data.images?.value || [];
@@ -356,6 +395,12 @@ export async function createSearchProvider({
         ? { method: "POST", credentials: "omit", headers }
         : { method: "GET", credentials: "omit" }
     );
+    
+    if (!response.ok) {
+      await handleSearchProviderError('searxng', apiKey, response);
+      throw new Error(`SearXNG search failed: ${response.status} ${response.statusText}`);
+    }
+    
     const { results = [] } = await response.json();
     const rearrangedResults = sort(
       results as SearxngSearchResult[],
