@@ -101,8 +101,8 @@ export const useChatHistory = () => {
   // 创建话题并保存初始对话（简化版）
   const createTopicWithInitialChat = useCallback(async (userQuery: string, aiResponse: string): Promise<string | null> => {
     try {
-      if (!authStore.jwt || !authStore.dataBaseUrl) {
-        console.warn('[useChatHistory] 缺少认证信息，无法创建云端话题');
+      if (!authStore.jwt) {
+        console.warn('[useChatHistory] 缺少JWT认证信息，无法创建云端话题');
         return null;
       }
 
@@ -257,8 +257,6 @@ export const useChatHistory = () => {
     
     // 状态信息
     currentTopicId: authStore.topicId,
-    isConnected: process.env.NODE_ENV === 'development' 
-      ? !!authStore.dataBaseUrl  // 开发环境只需要数据中心URL
-      : !!(authStore.jwt && authStore.dataBaseUrl), // 生产环境需要JWT和数据中心URL
+    isConnected: !!authStore.jwt, // 只需要JWT即可连接，dataBaseUrl会自动推断
   };
 };

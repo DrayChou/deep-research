@@ -10,12 +10,8 @@ function JwtStatus() {
   const { jwt, dataBaseUrl } = useAuthStore();
   const { validationResult, clearAuth } = useJwtAuth();
 
-  // 如果没有配置数据中心URL，不需要JWT认证，不显示任何内容
-  if (!dataBaseUrl) {
-    return null;
-  }
-
-  // 配置了数据中心但没有JWT，或JWT验证失败，显示全屏错误界面
+  // 如果没有JWT或JWT验证失败，显示全屏错误界面
+  // 注意：dataBaseUrl现在会自动推断，不再需要显式配置
   if (!jwt || (validationResult && !validationResult.valid)) {
     return (
       <div className="fixed inset-0 bg-white dark:bg-gray-900 z-50 flex items-center justify-center p-4">

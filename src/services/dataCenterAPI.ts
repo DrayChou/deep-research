@@ -37,7 +37,33 @@ class DataCenterAPI {
 
   private getBaseUrl(): string {
     const { dataBaseUrl } = useAuthStore.getState();
-    return dataBaseUrl || process.env.NEXT_PUBLIC_DATA_CENTER_URL || '';
+    
+    // 1. 优先使用存储的 dataBaseUrl
+    if (dataBaseUrl) {
+      return dataBaseUrl;
+    }
+    
+    // 2. 从环境变量获取
+    const envUrl = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
+    if (envUrl) {
+      return envUrl;
+    }
+    
+    // 3. 从当前页面URL推断（客户端专用）
+    if (typeof window !== 'undefined' && window.location) {
+      const currentUrl = window.location.href;
+      
+      // 检查是否是 dp2api 路径格式
+      if (currentUrl.includes('/dp2api/')) {
+        const url = new URL(currentUrl);
+        const inferredUrl = `${url.protocol}//${url.host}`;
+        console.log('[DataCenterAPI] Inferred dataBaseUrl from current URL:', inferredUrl);
+        return inferredUrl;
+      }
+    }
+    
+    // 4. 默认回退
+    return 'http://localhost:8080';
   }
 
   /**
@@ -69,7 +95,8 @@ class DataCenterAPI {
    */
   async getTopicHistory(topicId: string): Promise<ApiResponse<TopicHistory>> {
     try {
-      if (!this.getBaseUrl()) {
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
         throw new Error('数据中心URL未配置');
       }
 
@@ -101,7 +128,8 @@ class DataCenterAPI {
    */
   async getTopicList(): Promise<ApiResponse<TopicHistory[]>> {
     try {
-      if (!this.getBaseUrl()) {
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
         throw new Error('数据中心URL未配置');
       }
 
@@ -133,7 +161,8 @@ class DataCenterAPI {
    */
   async validateToken(): Promise<ApiResponse<{ valid: boolean; user?: any }>> {
     try {
-      if (!this.getBaseUrl()) {
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
         throw new Error('数据中心URL未配置');
       }
 

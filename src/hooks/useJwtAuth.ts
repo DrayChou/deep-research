@@ -19,8 +19,8 @@ export const useJwtAuth = () => {
    * 静默验证JWT令牌
    */
   const validateJwt = useCallback(async (): Promise<JwtValidationResult> => {
-    if (!authStore.jwt || !authStore.dataBaseUrl) {
-      return { valid: false, error: "Authentication not configured" };
+    if (!authStore.jwt) {
+      return { valid: false, error: "No JWT token provided" };
     }
 
     try {

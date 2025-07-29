@@ -61,7 +61,33 @@ class ChatHistoryService {
 
   private get baseUrl(): string {
     const { dataBaseUrl } = useAuthStore.getState();
-    return dataBaseUrl || process.env.NEXT_PUBLIC_DATA_CENTER_URL || '';
+    
+    // 1. 优先使用存储的 dataBaseUrl
+    if (dataBaseUrl) {
+      return dataBaseUrl;
+    }
+    
+    // 2. 从环境变量获取
+    const envUrl = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
+    if (envUrl) {
+      return envUrl;
+    }
+    
+    // 3. 从当前页面URL推断（客户端专用）
+    if (typeof window !== 'undefined' && window.location) {
+      const currentUrl = window.location.href;
+      
+      // 检查是否是 dp2api 路径格式
+      if (currentUrl.includes('/dp2api/')) {
+        const url = new URL(currentUrl);
+        const inferredUrl = `${url.protocol}//${url.host}`;
+        console.log('[ChatHistoryService] Inferred dataBaseUrl from current URL:', inferredUrl);
+        return inferredUrl;
+      }
+    }
+    
+    // 4. 默认回退
+    return 'http://localhost:8080';
   }
 
   private get jwt(): string {
@@ -104,8 +130,9 @@ class ChatHistoryService {
    * 创建新的深度研究话题
    */
   async createDeepResearchTopic(query: string): Promise<string> {
-    if (!this.baseUrl || !this.jwt) {
-      throw new Error('数据中心配置不完整：需要数据中心URL和JWT令牌');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      throw new Error('数据中心配置不完整：需要JWT令牌');
     }
 
     const topicData = {
@@ -171,8 +198,9 @@ class ChatHistoryService {
   async loadTopicHistory(topicId: string): Promise<{ state: DeepResearchState; topic: ChatTopic } | null> {
     console.log('[ChatHistoryService] 检查配置 - baseUrl:', this.baseUrl, 'jwt:', this.jwt ? 'exists' : 'missing');
     
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过加载历史记录');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过加载历史记录');
       return null;
     }
 
@@ -229,8 +257,9 @@ class ChatHistoryService {
    * 保存完整的研究状态快照
    */
   async saveResearchSnapshot(topicId: string, stage: string, taskStore: any): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存状态快照');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过保存状态快照');
       return;
     }
 
@@ -305,8 +334,9 @@ class ChatHistoryService {
    * 保存用户消息（简单格式）
    */
   async saveUserMessage(topicId: string, content: string, stage: string): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存用户消息');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过保存用户消息');
       return;
     }
 
@@ -343,8 +373,9 @@ class ChatHistoryService {
    * 保存AI阶段性回复（包含完整阶段数据）
    */
   async saveAIStageResponse(topicId: string, content: string, stage: string, stageData: any): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存AI回复');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过保存AI回复');
       return;
     }
 
@@ -385,8 +416,9 @@ class ChatHistoryService {
    * 保存阶段消息
    */
   async saveStageMessage(topicId: string, stage: string, data: any): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过保存消息');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过保存消息');
       return;
     }
 
@@ -434,7 +466,8 @@ class ChatHistoryService {
    * 更新话题状态
    */
   async updateTopicStatus(topicId: string, status: string, data?: any): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
       return;
     }
 
@@ -465,8 +498,9 @@ class ChatHistoryService {
    * 更新话题标题
    */
   async updateTopicTitle(topicId: string, title: string): Promise<void> {
-    if (!this.baseUrl || !this.jwt) {
-      console.warn('[ChatHistoryService] 数据中心配置不完整，跳过更新话题标题');
+    const baseUrl = this.baseUrl;
+    if (!baseUrl || !this.jwt) {
+      console.warn('[ChatHistoryService] 缺少JWT认证信息，跳过更新话题标题');
       return;
     }
 

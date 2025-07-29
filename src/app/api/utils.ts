@@ -174,6 +174,62 @@ export function getSearchProviderApiKey(provider: string) {
 }
 
 /**
+ * 从请求中推断数据中心URL
+ * 优先级：URL参数 > 环境变量 > 从请求路径推断 > 从headers推断
+ */
+export function inferDataBaseUrlFromRequest(req: NextRequest): string {
+  // 1. 优先从URL参数中获取
+  const dataBaseUrlFromParams = req.nextUrl.searchParams.get('dataBaseUrl');
+  if (dataBaseUrlFromParams) {
+    console.log('[DataBaseUrl] Found from URL params:', dataBaseUrlFromParams);
+    return dataBaseUrlFromParams;
+  }
+
+  // 2. 从环境变量获取
+  const dataBaseUrlFromEnv = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
+  if (dataBaseUrlFromEnv) {
+    console.log('[DataBaseUrl] Found from environment variable:', dataBaseUrlFromEnv);
+    return dataBaseUrlFromEnv;
+  }
+
+  // 3. 从请求路径推断
+  const pathname = req.nextUrl.pathname;
+  console.log('[DataBaseUrl] Request pathname:', pathname);
+  
+  // 检查是否是 dp2api 路径格式：/dp2api/api/xxx
+  if (pathname.startsWith('/dp2api/')) {
+    // 从 headers 中获取原始请求的 host 和协议
+    const host = req.headers.get('host') || req.headers.get('x-forwarded-host') || 'localhost:8080';
+    const protocol = req.headers.get('x-forwarded-proto') || 
+                    req.headers.get('x-forwarded-protocol') || 
+                    (host.includes('localhost') ? 'http' : 'https');
+    
+    const inferredUrl = `${protocol}://${host}`;
+    console.log('[DataBaseUrl] Inferred from dp2api path:', {
+      pathname,
+      host,
+      protocol,
+      inferredUrl
+    });
+    return inferredUrl;
+  }
+
+  // 4. 从其他 headers 推断（如果有代理）
+  const forwardedHost = req.headers.get('x-forwarded-host');
+  const forwardedProto = req.headers.get('x-forwarded-proto');
+  if (forwardedHost && forwardedProto) {
+    const inferredUrl = `${forwardedProto}://${forwardedHost}`;
+    console.log('[DataBaseUrl] Inferred from forwarded headers:', inferredUrl);
+    return inferredUrl;
+  }
+
+  // 5. 默认回退
+  const defaultUrl = 'http://localhost:8080';
+  console.log('[DataBaseUrl] Using default fallback:', defaultUrl);
+  return defaultUrl;
+}
+
+/**
  * 从请求中提取JWT令牌
  * 支持从URL参数或Authorization头中读取
  */
@@ -355,10 +411,8 @@ export async function optionalJwtAuthMiddleware(req: NextRequest): Promise<JwtVa
 
   console.log('[JWT Auth] JWT found, validating and fetching config...');
   
-  // 从URL参数中获取数据中心URL（可选），默认使用localhost:8080
-  const dataBaseUrl = req.nextUrl.searchParams.get('dataBaseUrl') || 
-                      process.env.NEXT_PUBLIC_DATA_CENTER_URL || 
-                      'http://localhost:8080';
+  // 智能推断数据中心URL
+  const dataBaseUrl = inferDataBaseUrlFromRequest(req);
 
   console.log('[JWT Auth] Data center URL:', dataBaseUrl);
 
@@ -389,10 +443,8 @@ export async function jwtAuthMiddleware(req: NextRequest): Promise<JwtValidation
     return { valid: false, error: 'No JWT token provided' };
   }
 
-  // 从URL参数中获取数据中心URL（可选）
-  const dataBaseUrl = req.nextUrl.searchParams.get('dataBaseUrl') || 
-                      process.env.NEXT_PUBLIC_DATA_CENTER_URL || 
-                      '';
+  // 智能推断数据中心URL
+  const dataBaseUrl = inferDataBaseUrlFromRequest(req);
 
   // 验证JWT并获取配置
   return await validateJwtAndGetConfig(jwt, dataBaseUrl);
