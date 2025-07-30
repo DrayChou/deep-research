@@ -7,6 +7,10 @@ import {
   getAIProviderConfig,
   getSearchProviderConfig,
 } from "../../utils";
+import { logger } from "@/utils/logger";
+
+// 创建SSE API专用的日志实例
+const sseLogger = logger.getInstance('SSE-Live');
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -22,9 +26,14 @@ export const preferredRegion = [
 ];
 
 export async function GET(req: NextRequest) {
-  console.log('\n=== [SSE Live] New request ===');
-  console.log('[SSE Live] Request URL:', req.url);
-  console.log('[SSE Live] URL search params:', Object.fromEntries(req.nextUrl.searchParams.entries()));
+  const requestLogger = logger.getInstance('SSE-Live');
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  requestLogger.info('New request', {
+    requestId,
+    url: req.url,
+    searchParams: Object.fromEntries(req.nextUrl.searchParams.entries())
+  });
   
   // 可选JWT验证和配置获取
   const authResult = await optionalJwtAuthMiddleware(req);
@@ -52,7 +61,7 @@ export async function GET(req: NextRequest) {
   
   // 额外的安全检查，确保provider不为空
   if (!aiConfig.provider || aiConfig.provider.trim() === '') {
-    console.error('[SSE Live] AI provider is empty, this should not happen');
+    sseLogger.error('AI provider is empty, this should not happen');
     return NextResponse.json(
       { error: 'AI provider configuration is missing', code: 500 },
       { status: 500 }
@@ -60,7 +69,7 @@ export async function GET(req: NextRequest) {
   }
   
   if (!searchConfig.searchProvider || searchConfig.searchProvider.trim() === '') {
-    console.error('[SSE Live] Search provider is empty, this should not happen');
+    sseLogger.error('Search provider is empty, this should not happen');
     return NextResponse.json(
       { error: 'Search provider configuration is missing', code: 500 },
       { status: 500 }
@@ -76,7 +85,7 @@ export async function GET(req: NextRequest) {
   const taskModel = getValueFromSearchParams("taskModel") || modelConfig.networkingModel || 'gpt-4o';
 
   // 添加简化的配置调试日志
-  console.log('[SSE Live] Configuration:', {
+  sseLogger.info('Configuration', {
     aiProvider: aiConfig.provider,
     searchProvider: searchConfig.searchProvider,
     models: modelConfig
@@ -86,17 +95,17 @@ export async function GET(req: NextRequest) {
   const encoder = new TextEncoder();
   const readableStream = new ReadableStream({
     start: async (controller) => {
-      console.log("Client connected");
+      sseLogger.info("Client connected");
 
       req.signal.addEventListener("abort", () => {
-        console.log("Client disconnected");
+        sseLogger.info("Client disconnected");
       });
 
       // 使用之前已经获取的配置，避免重复获取导致 API Key 丢失
       // const aiConfig = getAIProviderConfig(authResult.config || {}, req);
       // const searchConfig = getSearchProviderConfig(authResult.config || {}, req);
 
-      console.log('[SSE Live] DeepResearch initialization parameters:', {
+      sseLogger.info('DeepResearch initialization parameters', {
         language,
         query: query ? `${query.substring(0, 50)}...` : 'Empty',
         aiProvider: {
@@ -119,12 +128,13 @@ export async function GET(req: NextRequest) {
       });
 
       const processedApiKey = multiApiKeyPolling(aiConfig.apiKey);
-      const processedSearchApiKey = multiApiKeyPolling(searchConfig.apiKey);
+      // 不在这里预处理搜索API key，将原始的多key字符串传递给DeepResearch
+      // 让DeepResearch内部处理key的选择和轮换
       
-      // 临时调试：检查搜索配置传递
-      console.log('[SSE Live] Search Config Debug:', {
-        searchConfigApiKey: searchConfig.apiKey ? `${searchConfig.apiKey.substring(0, 15)}...` : 'Missing',
-        processedSearchApiKey: processedSearchApiKey ? `${processedSearchApiKey.substring(0, 15)}...` : 'Missing',
+      // 使用日志记录搜索配置状态
+      sseLogger.debug('Search configuration processed', {
+        hasApiKey: !!searchConfig.apiKey,
+        searchKeyCount: searchConfig.apiKey ? searchConfig.apiKey.split(',').length : 0,
         searchProvider: searchConfig.searchProvider
       });
 
@@ -139,7 +149,7 @@ export async function GET(req: NextRequest) {
         },
         searchProvider: {
           baseURL: searchConfig.apiProxy,
-          apiKey: processedSearchApiKey,
+          apiKey: searchConfig.apiKey, // 传递原始的多 key 字符串
           provider: searchConfig.searchProvider,
           maxResult,
         },
@@ -147,7 +157,7 @@ export async function GET(req: NextRequest) {
           if (event === "message") {
             controller.enqueue(encoder.encode(data.text));
           } else if (event === "progress") {
-            console.log(
+            sseLogger.debug(
               `[${data.step}]: ${data.name ? `"${data.name}" ` : ""}${
                 data.status
               }`
@@ -169,7 +179,38 @@ export async function GET(req: NextRequest) {
       try {
         await deepResearch.start(query, enableCitationImage, enableReferences);
       } catch (err) {
-        throw new Error(err instanceof Error ? err.message : "Unknown error");
+        const errorDetails = {
+          requestId,
+          error: err instanceof Error ? err.message : "Unknown error",
+          stack: err instanceof Error ? err.stack : undefined,
+          query: query ? query.substring(0, 100) : 'Empty',
+          aiProvider: aiConfig.provider,
+          searchProvider: searchConfig.searchProvider,
+          thinkingModel,
+          taskModel,
+          timestamp: new Date().toISOString()
+        };
+        
+        requestLogger.error('Deep research execution failed', err instanceof Error ? err : undefined, errorDetails);
+        
+        // 发送错误信息到客户端
+        const errorMessage = err instanceof Error ? err.message : "Unknown error";
+        const errorPayload = {
+          type: 'error',
+          message: errorMessage,
+          details: errorDetails,
+          timestamp: new Date().toISOString(),
+          requestId
+        };
+        
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorPayload)}\n\n`));
+        
+        // 延迟关闭连接，确保客户端收到错误信息
+        setTimeout(() => {
+          controller.close();
+        }, 1000);
+        
+        return;
       }
       controller.close();
     },
@@ -183,9 +224,10 @@ export async function GET(req: NextRequest) {
       "X-Accel-Buffering": "no",
       "Access-Control-Allow-Origin": "*",
 
-      // 响应标题里输出当前使用的模型名称
+      // 响应标题里输出当前使用的模型名称和请求ID
       "X-Model-Name": `${aiConfig.provider} (${thinkingModel}, ${taskModel})`,
       "X-Search-Provider": searchConfig.searchProvider || "Not configured",
+      "X-Request-ID": requestId,
     },
   });
 }

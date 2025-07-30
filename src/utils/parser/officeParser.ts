@@ -2,6 +2,10 @@
  * Modified from https://github.com/harshankur/officeParser
  */
 import { ZipReader, BlobReader, BlobWriter, type Entry } from "@zip.js/zip.js";
+import { logger } from "@/utils/logger";
+
+// 创建Office解析器专用的日志实例
+const officeLogger = logger.getInstance('Office-Parser');
 
 /**
  * Resolves to an array of object
@@ -48,7 +52,7 @@ const ERRORMSG = {
 };
 
 function handleError(error: string, outputErrorToConsole = false) {
-  if (error && outputErrorToConsole) console.error(ERRORHEADER + error);
+  if (error && outputErrorToConsole) officeLogger.error(ERRORHEADER + error);
   throw new Error(ERRORHEADER + error);
 }
 
