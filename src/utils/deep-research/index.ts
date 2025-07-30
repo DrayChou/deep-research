@@ -464,14 +464,14 @@ class DeepResearch {
         let originalApiKeys = this.options.searchProvider.apiKey || "";
         const usedKeys = new Set<string>();
         
-        // 安全措施：直接从环境变量获取原始key作为补充，防止被覆盖
+        // 安全措施：直接从环境变量获取原始 key 作为补充，防止被覆盖
         try {
           // 动态导入环境变量读取函数
           const envModule = await import("@/app/api/utils");
           const envKeys = envModule.getSearchProviderApiKey(this.options.searchProvider.provider);
           
           if (envKeys && envKeys.trim()) {
-            // 合并配置的key和环境变量的key，去重
+            // 合并配置的 key 和环境变量的 key，去重
             const mergedKeys = this.mergeAndDeduplicateKeys(originalApiKeys, envKeys);
             
             if (mergedKeys !== originalApiKeys) {

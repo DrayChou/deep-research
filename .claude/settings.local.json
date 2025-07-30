@@ -24,7 +24,10 @@
       "Bash(mv:*)",
       "Bash(find:*)",
       "Bash(tree:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run build:*)",
+      "Bash(npx eslint:*)"
     ],
     "deny": []
   }
