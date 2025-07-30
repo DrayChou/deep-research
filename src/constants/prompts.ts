@@ -99,6 +99,8 @@ export const serpQueriesPrompt = `This is the report plan after user confirmatio
 
 Based on previous report plan, generate a list of SERP queries to further research the topic. Make sure each query is unique and not similar to each other.
 
+IMPORTANT: For each research goal, you must generate BOTH Chinese and English search queries to ensure comprehensive research coverage. Each query pair should cover the same research goal but in different languages.
+
 ${serpQuerySchemaPrompt}`;
 
 export const queryResultPrompt = `Please use the following query to get the latest information via the web:

@@ -283,7 +283,7 @@ class DeepResearch {
         duration
       );
 
-      // 改进的 JSON 解析，添加详细的错误处理和修复尝试
+      // 改进的 JSON 解析，添加重试策略和详细的错误处理
       let data;
       try {
         const cleanedContent = removeJsonMarkdown(content);
@@ -325,25 +325,40 @@ class DeepResearch {
         
         try {
           data = JSON.parse(repairedContent);
-          this.logger.info('JSON repair successful');
+          this.logger.info('JSON repair successful', {
+            repairSteps: 'Applied standard JSON repair procedures',
+            finalContent: repairedContent
+          });
         } catch (repairError) {
           this.logger.error('JSON repair failed', repairError instanceof Error ? repairError : undefined, {
             originalContent: content,
             repairedContent,
             parseError: parseError instanceof Error ? parseError.message : 'Unknown error',
-            repairError: repairError instanceof Error ? repairError.message : 'Unknown error'
+            repairError: repairError instanceof Error ? repairError.message : 'Unknown error',
+            repairStepsApplied: [
+              'Removed JSON markdown formatting',
+              'Removed thinking tag remnants',
+              'Normalized whitespace',
+              'Extracted JSON array boundaries'
+            ]
           });
           
-          // 最后的 fallback：基于报告计划创建一个基础的搜索查询
-          const fallbackQuery = reportPlan.substring(0, 100).trim();
-          data = [{
-            query: fallbackQuery || "研究分析",
-            researchGoal: `针对研究主题进行基础分析和资料收集`
-          }];
-          this.logger.warn('Using fallback query due to JSON parse failure', { 
-            fallbackQuery: fallbackQuery || "研究分析",
-            reportPlanLength: reportPlan.length 
+          // 如果所有重试都失败了，抛出异常中断任务
+          this.logger.error('JSON repair failed after all retry attempts', repairError instanceof Error ? repairError : undefined, {
+            originalContent: content,
+            repairedContent,
+            parseError: parseError instanceof Error ? parseError.message : 'Unknown error',
+            repairError: repairError instanceof Error ? repairError.message : 'Unknown error',
+            repairStepsApplied: [
+              'Removed JSON markdown formatting',
+              'Removed thinking tag remnants',
+              'Normalized whitespace',
+              'Extracted JSON array boundaries'
+            ],
+            retryAttempts: maxRetries
           });
+          
+          throw new Error(`Failed to parse SERP query JSON after ${maxRetries} attempts. AI response was not in valid JSON format. Please check the AI model configuration and prompts.`);
         }
       }
       
@@ -386,6 +401,9 @@ class DeepResearch {
       });
       throw error;
     }
+
+    
+
   }
 
   async runSearchTask(
