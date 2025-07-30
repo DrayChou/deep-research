@@ -15,6 +15,7 @@ import { outputGuidelinesPrompt } from "@/constants/prompts";
 import { isNetworkingModel } from "@/utils/model";
 import { ThinkTagStreamProcessor, removeJsonMarkdown } from "@/utils/text";
 import { pick, unique, flat, isFunction } from "radash";
+import { logger } from "@/utils/logger";
 
 export interface DeepResearchOptions {
   AIProvider: {
@@ -71,27 +72,47 @@ function addQuoteBeforeAllLine(text: string = "") {
 class DeepResearch {
   protected options: DeepResearchOptions;
   onMessage: (event: string, data: any) => void = () => {};
+  private logger: logger;
   constructor(options: DeepResearchOptions) {
     this.options = options;
+    this.logger = logger.getInstance('DeepResearch');
     if (isFunction(options.onMessage)) {
       this.onMessage = options.onMessage;
     }
-  }
-
-  async getThinkingModel() {
-    const { AIProvider } = this.options;
-    const AIProviderBaseOptions = pick(AIProvider, ["baseURL", "apiKey"]);
-    return await createAIProvider({
-      provider: AIProvider.provider,
-      model: AIProvider.thinkingModel,
-      ...AIProviderBaseOptions,
+    this.logger.info('DeepResearch initialized', {
+      aiProvider: options.AIProvider.provider,
+      thinkingModel: options.AIProvider.thinkingModel,
+      taskModel: options.AIProvider.taskModel,
+      searchProvider: options.searchProvider.provider,
+      language: options.language
     });
   }
 
-  async getTaskModel() {
+  public async getThinkingModel() {
     const { AIProvider } = this.options;
     const AIProviderBaseOptions = pick(AIProvider, ["baseURL", "apiKey"]);
-    return await createAIProvider({
+    const config = {
+      provider: AIProvider.provider,
+      model: AIProvider.thinkingModel,
+      ...AIProviderBaseOptions,
+    };
+    
+    this.logger.debug('Getting thinking model', config);
+    
+    try {
+      const model = await createAIProvider(config);
+      this.logger.info('Thinking model created successfully', { model: AIProvider.thinkingModel });
+      return model;
+    } catch (error) {
+      this.logger.error('Failed to create thinking model', error, config);
+      throw error;
+    }
+  }
+
+  public async getTaskModel() {
+    const { AIProvider } = this.options;
+    const AIProviderBaseOptions = pick(AIProvider, ["baseURL", "apiKey"]);
+    const config = {
       provider: AIProvider.provider,
       model: AIProvider.taskModel,
       settings:
@@ -100,7 +121,18 @@ class DeepResearch {
           ? { useSearchGrounding: true }
           : undefined,
       ...AIProviderBaseOptions,
-    });
+    };
+    
+    this.logger.debug('Getting task model', config);
+    
+    try {
+      const model = await createAIProvider(config);
+      this.logger.info('Task model created successfully', { model: AIProvider.taskModel });
+      return model;
+    } catch (error) {
+      this.logger.error('Failed to create task model', error, config);
+      throw error;
+    }
   }
 
   getResponseLanguagePrompt() {
@@ -109,19 +141,35 @@ class DeepResearch {
       : `**Respond in the same language as the user's language**`;
   }
 
-  async writeReportPlan(query: string): Promise<string> {
+  public async writeReportPlan(query: string): Promise<string> {
+    this.logger.logStep('writeReportPlan', 'start', { queryLength: query.length, queryPreview: query.substring(0, 100) });
     this.onMessage("progress", { step: "report-plan", status: "start" });
     const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
-    const result = streamText({
-      model: await this.getThinkingModel(),
-      system: getSystemPrompt(),
-      prompt: [
-        writeReportPlanPrompt(query),
-        this.getResponseLanguagePrompt(),
-      ].join("\n\n"),
+    
+    const startTime = Date.now();
+    const systemPrompt = getSystemPrompt();
+    const userPrompt = [
+      writeReportPlanPrompt(query),
+      this.getResponseLanguagePrompt(),
+    ].join("\n\n");
+    
+    this.logger.debug('Report plan prompt', {
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      userPromptPreview: userPrompt.substring(0, 200)
     });
+    
+    try {
+      const model = await this.getThinkingModel();
+      const result = streamText({
+        model,
+        system: systemPrompt,
+        prompt: userPrompt,
+      });
     let content = "";
+    let reasoningContent = "";
     this.onMessage("message", { type: "text", text: "<report-plan>\n" });
+    
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         thinkTagStreamProcessor.processChunk(
@@ -131,14 +179,31 @@ class DeepResearch {
             this.onMessage("message", { type: "text", text: data });
           },
           (data) => {
+            reasoningContent += data;
             this.onMessage("reasoning", { type: "text", text: data });
           }
         );
       } else if (part.type === "reasoning") {
+        reasoningContent += part.textDelta;
         this.onMessage("reasoning", { type: "text", text: part.textDelta });
       }
     }
     this.onMessage("message", { type: "text", text: "\n</report-plan>\n\n" });
+    
+    const duration = Date.now() - startTime;
+    this.logger.logLLMCall('writeReportPlan', 
+      { model: this.options.AIProvider.thinkingModel },
+      { promptLength: userPrompt.length, content: query },
+      { contentLength: content.length, reasoningLength: reasoningContent.length },
+      duration
+    );
+    
+    this.logger.logStep('writeReportPlan', 'end', { 
+      contentLength: content.length, 
+      duration,
+      hasReasoning: reasoningContent.length > 0
+    });
+    
     this.onMessage("progress", {
       step: "report-plan",
       status: "end",
@@ -147,27 +212,51 @@ class DeepResearch {
     return content;
   }
 
-  async generateSERPQuery(
+  public async generateSERPQuery(
     reportPlan: string
   ): Promise<DeepResearchSearchTask[]> {
+    this.logger.logStep('generateSERPQuery', 'start', { reportPlanLength: reportPlan.length });
     this.onMessage("progress", { step: "serp-query", status: "start" });
     const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
-    const { text } = await generateText({
-      model: await this.getThinkingModel(),
-      system: getSystemPrompt(),
-      prompt: [
-        generateSerpQueriesPrompt(reportPlan),
-        this.getResponseLanguagePrompt(),
-      ].join("\n\n"),
+    
+    const startTime = Date.now();
+    const systemPrompt = getSystemPrompt();
+    const userPrompt = [
+      generateSerpQueriesPrompt(reportPlan),
+      this.getResponseLanguagePrompt(),
+    ].join("\n\n");
+    
+    this.logger.debug('SERP query prompt', {
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      userPromptPreview: userPrompt.substring(0, 200)
     });
+    
+    try {
+      const model = await this.getThinkingModel();
+      const { text } = await generateText({
+        model,
+        system: systemPrompt,
+        prompt: userPrompt,
+      });
     const querySchema = getSERPQuerySchema();
     let content = "";
     thinkTagStreamProcessor.processChunk(text, (data) => {
       content += data;
     });
+    
+    const duration = Date.now() - startTime;
+    this.logger.logLLMCall('generateSERPQuery', 
+      { model: this.options.AIProvider.thinkingModel },
+      { promptLength: userPrompt.length, reportPlanLength: reportPlan.length },
+      { responseLength: text.length, parsedContentLength: content.length },
+      duration
+    );
+    
     const data = JSON.parse(removeJsonMarkdown(content));
     thinkTagStreamProcessor.end();
     const result = querySchema.safeParse(data);
+    
     if (result.success) {
       const tasks: DeepResearchSearchTask[] = data.map(
         (item: { query: string; researchGoal?: string }) => ({
@@ -175,6 +264,13 @@ class DeepResearch {
           researchGoal: item.researchGoal || "",
         })
       );
+      
+      this.logger.logStep('generateSERPQuery', 'end', { 
+        taskCount: tasks.length,
+        duration,
+        queries: tasks.map(t => t.query.substring(0, 50))
+      });
+      
       this.onMessage("progress", {
         step: "serp-query",
         status: "end",
@@ -182,11 +278,16 @@ class DeepResearch {
       });
       return tasks;
     } else {
+      this.logger.error('SERP query validation failed', null, { 
+        error: result.error.message,
+        content,
+        data
+      });
       throw new Error(result.error.message);
     }
   }
 
-  async runSearchTask(
+  public async runSearchTask(
     tasks: DeepResearchSearchTask[],
     enableReferences = true
   ): Promise<SearchTask[]> {
@@ -381,14 +482,20 @@ class DeepResearch {
     return results;
   }
 
-  async writeFinalReport(
+  public async writeFinalReport(
     reportPlan: string,
     tasks: DeepResearchSearchResult[],
     enableCitationImage = true,
     enableReferences = true
   ): Promise<FinalReportResult> {
+    this.logger.logStep('writeFinalReport', 'start', { 
+      taskCount: tasks.length,
+      enableCitationImage,
+      enableReferences
+    });
     this.onMessage("progress", { step: "final-report", status: "start" });
     const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
+    
     const learnings = tasks.map((item) => item.learning);
     const sources: Source[] = unique(
       flat(tasks.map((item) => item.sources || [])),
@@ -398,24 +505,53 @@ class DeepResearch {
       flat(tasks.map((item) => item.images || [])),
       (item) => item.url
     );
-    const result = streamText({
-      model: await this.getThinkingModel(),
-      system: [getSystemPrompt(), outputGuidelinesPrompt].join("\n\n"),
-      prompt: [
-        writeFinalReportPrompt(
-          reportPlan,
-          learnings,
-          sources.map((item) => pick(item, ["title", "url"])),
-          images,
-          "",
-          images.length > 0 && enableCitationImage,
-          sources.length > 0 && enableReferences
-        ),
-        this.getResponseLanguagePrompt(),
-      ].join("\n\n"),
+    
+    // 记录输入数据统计
+    this.logger.debug('Final report input data', {
+      reportPlanLength: reportPlan.length,
+      taskCount: tasks.length,
+      totalLearningsLength: learnings.reduce((sum, learning) => sum + learning.length, 0),
+      sourcesCount: sources.length,
+      imagesCount: images.length,
+      averageLearningLength: learnings.reduce((sum, learning) => sum + learning.length, 0) / learnings.length
     });
+    const startTime = Date.now();
+    const systemPrompt = [getSystemPrompt(), outputGuidelinesPrompt].join("\n\n");
+    const finalPrompt = [
+      writeFinalReportPrompt(
+        reportPlan,
+        learnings,
+        sources.map((item) => pick(item, ["title", "url"])),
+        images,
+        "",
+        images.length > 0 && enableCitationImage,
+        sources.length > 0 && enableReferences
+      ),
+      this.getResponseLanguagePrompt(),
+    ].join("\n\n");
+    
+    this.logger.debug('Final report prompt details', {
+      systemPromptLength: systemPrompt.length,
+      finalPromptLength: finalPrompt.length,
+      finalPromptPreview: finalPrompt.substring(0, 500),
+      learningsCount: learnings.length,
+      sourcesCount: sources.length,
+      imagesCount: images.length
+    });
+    
+    try {
+      const model = await this.getThinkingModel();
+      const result = streamText({
+        model,
+        system: systemPrompt,
+        prompt: finalPrompt,
+      });
     let content = "";
+    let reasoningContent = "";
+    let sourceCount = 0;
+    
     this.onMessage("message", { type: "text", text: "<final-report>\n" });
+    
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         thinkTagStreamProcessor.processChunk(
@@ -425,13 +561,16 @@ class DeepResearch {
             this.onMessage("message", { type: "text", text: data });
           },
           (data) => {
+            reasoningContent += data;
             this.onMessage("reasoning", { type: "text", text: data });
           }
         );
       } else if (part.type === "reasoning") {
+        reasoningContent += part.textDelta;
         this.onMessage("reasoning", { type: "text", text: part.textDelta });
       } else if (part.type === "source") {
         sources.push(part.source);
+        sourceCount++;
       } else if (part.type === "finish") {
         if (sources.length > 0) {
           const sourceContent =
@@ -446,10 +585,40 @@ class DeepResearch {
               .join("\n");
           content += sourceContent;
         }
+        
+        // 记录完成状态
+        this.logger.debug('Final report generation finished', {
+          providerMetadata: part.providerMetadata,
+          usage: part.usage,
+          finishReason: part.finishReason
+        });
       }
     }
     this.onMessage("message", { type: "text", text: "\n</final-report>\n\n" });
     thinkTagStreamProcessor.end();
+
+    const duration = Date.now() - startTime;
+    
+    // 记录LLM调用详情
+    this.logger.logLLMCall('writeFinalReport', 
+      { 
+        model: this.options.AIProvider.thinkingModel,
+        enableCitationImage,
+        enableReferences
+      },
+      { 
+        promptLength: finalPrompt.length,
+        learningsCount: learnings.length,
+        sourcesCount: sources.length,
+        imagesCount: images.length
+      },
+      { 
+        contentLength: content.length,
+        reasoningLength: reasoningContent.length,
+        sourceCount: sourceCount
+      },
+      duration
+    );
 
     const title = content
       .split("\n")[0]
@@ -464,6 +633,17 @@ class DeepResearch {
       sources,
       images,
     };
+    
+    // 验证报告质量
+    const qualityCheck = this.validateReportQuality(finalReportResult);
+    this.logger.logStep('writeFinalReport', 'end', { 
+      contentLength: content.length,
+      title,
+      duration,
+      qualityCheck,
+      hasReasoning: reasoningContent.length > 0
+    });
+    
     this.onMessage("progress", {
       step: "final-report",
       status: "end",
@@ -472,11 +652,53 @@ class DeepResearch {
     return finalReportResult;
   }
 
-  async start(
+  // 验证报告质量的辅助方法
+  private validateReportQuality(report: FinalReportResult) {
+    const issues: string[] = [];
+    
+    if (report.finalReport.length < 500) {
+      issues.push('Report content too short (< 500 chars)');
+    }
+    
+    if (!report.title || report.title.length < 10) {
+      issues.push('Report title missing or too short');
+    }
+    
+    if (report.learnings.length === 0) {
+      issues.push('No learnings included in report');
+    }
+    
+    const hasMarkdownStructure = /#{1,6}\s/.test(report.finalReport);
+    if (!hasMarkdownStructure) {
+      issues.push('Report lacks proper markdown structure');
+    }
+    
+    return {
+      isValid: issues.length === 0,
+      issues,
+      metrics: {
+        contentLength: report.finalReport.length,
+        titleLength: report.title?.length || 0,
+        learningsCount: report.learnings.length,
+        sourcesCount: report.sources.length,
+        imagesCount: report.images.length
+      }
+    };
+  }
+
+  public async start(
     query: string,
     enableCitationImage = true,
     enableReferences = true
   ) {
+    const startTime = Date.now();
+    this.logger.logStep('start', 'begin', { 
+      queryLength: query.length,
+      queryPreview: query.substring(0, 100),
+      enableCitationImage,
+      enableReferences
+    });
+    
     try {
       const reportPlan = await this.writeReportPlan(query);
       const tasks = await this.generateSERPQuery(reportPlan);
@@ -487,11 +709,35 @@ class DeepResearch {
         enableCitationImage,
         enableReferences
       );
+      
+      const totalDuration = Date.now() - startTime;
+      this.logger.logStep('start', 'complete', { 
+        totalDuration,
+        finalReportLength: finalReport.finalReport.length,
+        totalSources: finalReport.sources.length,
+        totalImages: finalReport.images.length
+      });
+      
       return finalReport;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      this.onMessage("error", { message: errorMessage });
-      throw new Error(errorMessage);
+      const errorDetails = {
+        error: errorMessage,
+        stack: err instanceof Error ? err.stack : undefined,
+        query,
+        duration: Date.now() - startTime
+      };
+      
+      this.logger.error('Deep research failed', err, errorDetails);
+      this.onMessage("error", { 
+        message: errorMessage,
+        details: errorDetails
+      });
+      
+      // 重新抛出错误，包含原始错误信息
+      const enhancedError = new Error(errorMessage);
+      enhancedError.stack = err instanceof Error ? err.stack : undefined;
+      throw enhancedError;
     }
   }
 }
