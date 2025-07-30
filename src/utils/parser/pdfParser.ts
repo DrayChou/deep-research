@@ -1,4 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist";
+import { logger } from "@/utils/logger";
+
+// 创建PDF解析器专用的日志实例
+const pdfLogger = logger.getInstance('PDF-Parser');
 
 async function getTextContent(file: string | ArrayBuffer) {
   try {
@@ -25,7 +29,7 @@ async function getTextContent(file: string | ArrayBuffer) {
 
     return fullText;
   } catch (error) {
-    console.error("Error extracting text:", error);
+    pdfLogger.error("Error extracting text", error instanceof Error ? error : undefined);
     throw new Error("Error extracting text");
   }
 }
@@ -44,7 +48,7 @@ export async function readTextFromPDF(file: File): Promise<string> {
           const text = await getTextContent(reader.result);
           resolve(text);
         } catch (error) {
-          console.error("Error processing PDF:", error);
+          pdfLogger.error("Error processing PDF", error instanceof Error ? error : undefined);
           reject(new Error("Error processing PDF"));
         }
       } else {
