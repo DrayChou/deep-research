@@ -373,8 +373,8 @@ class DeepResearch {
           }
         }
       }
-        
-        // 尝试修复常见的 JSON 格式问题
+      
+      thinkTagStreamProcessor.end();
         let repairedContent = removeJsonMarkdown(content);
         
         // 修复 1: 移除 thinking 标签残留
