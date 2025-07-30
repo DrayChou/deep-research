@@ -1,6 +1,10 @@
 /**
  * JWT解析工具
  */
+import { logger } from "@/utils/logger";
+
+// 创建JWT工具专用的日志实例
+const jwtLogger = logger.getInstance('JWT-Utils');
 
 interface JWTPayload {
   sub?: string;       // 用户名/用户ID
@@ -20,7 +24,7 @@ export function parseJWT(token: string): JWTPayload | null {
     // JWT格式：header.payload.signature
     const parts = token.split('.');
     if (parts.length !== 3) {
-      console.warn('[JWT] 无效的JWT格式');
+      jwtLogger.warn('无效的JWT格式');
       return null;
     }
 
@@ -37,7 +41,7 @@ export function parseJWT(token: string): JWTPayload | null {
     
     return payloadObj as JWTPayload;
   } catch (error) {
-    console.error('[JWT] 解析JWT失败:', error);
+    jwtLogger.error('解析JWT失败', error instanceof Error ? error : undefined);
     return null;
   }
 }

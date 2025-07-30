@@ -1,3 +1,8 @@
+import { logger } from "@/utils/logger";
+
+// 创建URL工具专用的日志实例
+const urlLogger = logger.getInstance('URL-Utils');
+
 export function completePath(url: string, newPath?: string) {
   try {
     // Use dummy base URL to avoid parameter errors
@@ -32,7 +37,7 @@ export function completePath(url: string, newPath?: string) {
     urlObj.pathname = pathname;
     return urlObj.toString();
   } catch (err) {
-    console.error("Invalid URL:", err);
+    urlLogger.error("Invalid URL", err instanceof Error ? err : undefined);
     return url;
   }
 }
