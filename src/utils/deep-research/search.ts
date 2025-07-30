@@ -8,6 +8,10 @@ import {
 import { rewritingPrompt } from "@/constants/prompts";
 import { completePath } from "@/utils/url";
 import { pick, sort } from "radash";
+import { logger } from "@/utils/logger";
+
+// 创建搜索功能专用的日志实例
+const searchLogger = logger.getInstance('DeepResearch-Search');
 
 // 通用错误处理函数
 async function handleSearchProviderError(
@@ -20,10 +24,10 @@ async function handleSearchProviderError(
     if (apiKey && !response.ok) {
       // 根据状态码标记 key 失败
       markApiKeyFailed(apiKey, response.status);
-      console.log(`[Search Provider] Marked ${provider} API key as failed with status ${response.status}`);
+      searchLogger.info(`Marked ${provider} API key as failed with status ${response.status}`);
     }
   } catch (importError) {
-    console.warn(`[Search Provider] Failed to import markApiKeyFailed for ${provider}:`, importError);
+    searchLogger.warn(`Failed to import markApiKeyFailed for ${provider}`, importError);
   }
 }
 
@@ -151,6 +155,21 @@ export async function createSearchProvider({
   maxResult = 5,
   scope,
 }: SearchProviderOptions) {
+  // 建立key到provider的映射关系（仅在首次使用时）
+  if (apiKey && provider) {
+    try {
+      const { buildKeyToProviderMap } = await import('@/utils/model');
+      // 为所有可用的key建立映射，确保重试时能正确工作
+      buildKeyToProviderMap(provider, apiKey);
+      searchLogger.debug('已建立API key映射关系', {
+        provider,
+        keyPrefix: apiKey.substring(0, 8) + '...'
+      });
+    } catch (error) {
+      searchLogger.warn('建立API key映射关系失败', error);
+    }
+  }
+
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
@@ -170,7 +189,7 @@ export async function createSearchProvider({
     };
     
     // 临时调试：检查请求详情
-    console.log('[Search Provider] Tavily Request Details:', {
+    searchLogger.debug('Tavily Request Details', {
       url: searchUrl,
       method: 'POST',
       headers: {
@@ -197,7 +216,7 @@ export async function createSearchProvider({
     });
     
     // 临时调试：检查响应
-    console.log('[Search Provider] Tavily Response:', {
+    searchLogger.debug('Tavily Response', {
       status: response.status,
       statusText: response.statusText,
       headers: Object.fromEntries(response.headers.entries())
@@ -205,7 +224,7 @@ export async function createSearchProvider({
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.log('[Search Provider] Tavily Error Response:', errorText);
+      searchLogger.debug('Tavily Error Response', errorText);
       
       // 使用通用错误处理函数
       await handleSearchProviderError('tavily', apiKey, response);
@@ -423,7 +442,7 @@ export async function createSearchProvider({
         }) as ImageSource[],
     };
   } else {
-    console.warn("Unsupported Search Provider:", provider, "- falling back to model-based search");
+    searchLogger.warn("Unsupported Search Provider, falling back to model-based search", { provider });
     
     // 如果所有搜索提供商都不支持，返回空结果
     return {
