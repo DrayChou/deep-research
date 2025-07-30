@@ -1,4 +1,8 @@
 import { shuffle } from "radash";
+import { logger } from "@/utils/logger";
+
+// 创建模型配置专用的日志实例
+const modelLogger = logger.getInstance('Model-Config');
 
 // 全局 key 状态管理 - 前后端兼容
 interface KeyStatus {
@@ -7,7 +11,7 @@ interface KeyStatus {
   statusCode?: number;
 }
 
-// 全局状态存储: { provider: { key: KeyStatus } }
+// 全局状态存储：{ provider: { key: KeyStatus } }
 const globalKeyStatus = new Map<string, Map<string, KeyStatus>>();
 
 // key 到 provider 的反向映射
@@ -20,25 +24,25 @@ let cleanupTimer: NodeJS.Timeout | null = null;
 function getCooldownTime(statusCode: number): number {
   // 432 状态码拉黑一周
   if (statusCode === 432) {
-    return 7 * 24 * 60 * 60 * 1000; // 7天
+    return 7 * 24 * 60 * 60 * 1000; // 7 天
   }
   
-  // 429 (Too Many Requests) 拉黑1小时
+  // 429 (Too Many Requests) 拉黑 1 小时
   if (statusCode === 429) {
-    return 60 * 60 * 1000; // 1小时
+    return 60 * 60 * 1000; // 1 小时
   }
   
-  // 401 (Unauthorized) 拉黑1天
+  // 401 (Unauthorized) 拉黑 1 天
   if (statusCode === 401) {
-    return 24 * 60 * 60 * 1000; // 1天
+    return 24 * 60 * 60 * 1000; // 1 天
   }
   
-  // 403 (Forbidden) 拉黑1天
+  // 403 (Forbidden) 拉黑 1 天
   if (statusCode === 403) {
-    return 24 * 60 * 60 * 1000; // 1天
+    return 24 * 60 * 60 * 1000; // 1 天
   }
   
-  // 其他4xx错误拉黑2小时
+  // 其他 4xx 错误拉黑 2 小时
   if (statusCode >= 400 && statusCode < 500) {
     return 2 * 60 * 60 * 1000; // 2小时
   }
@@ -69,7 +73,7 @@ function cleanupExpiredKeys() {
       }
     }
   } catch (error) {
-    console.warn('Failed to cleanup expired keys:', error);
+    modelLogger.warn('Failed to cleanup expired keys', error);
   }
 }
 
@@ -77,17 +81,17 @@ function cleanupExpiredKeys() {
 function startCleanupTimer() {
   if (cleanupTimer) return; // 防止重复启动
   
-  const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1小时
+  const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 小时
   
   try {
     cleanupTimer = setInterval(cleanupExpiredKeys, CLEANUP_INTERVAL);
   } catch (error) {
-    console.warn('Failed to start cleanup timer:', error);
+    modelLogger.warn('Failed to start cleanup timer', error);
   }
 }
 
 // 建立 key 到 provider 的映射
-function buildKeyToProviderMap(provider: string, apiKeys: string) {
+export function buildKeyToProviderMap(provider: string, apiKeys: string) {
   const keys = apiKeys.split(',').map(k => k.trim()).filter(k => k);
   keys.forEach(key => {
     keyToProviderMap.set(key, provider);
@@ -112,73 +116,132 @@ function inferProviderFromCallStack(): string {
   }
 }
 
-// 修改后的 multiApiKeyPolling 函数 - 保持原有签名和向后兼容
-export function multiApiKeyPolling(apiKeys = "") {
+// 修改后的 multiApiKeyPolling 函数 - 简化的逻辑流程
+export function multiApiKeyPolling(apiKeys: string | string[] = "") {
   try {
-    // 基础输入验证 - 保持原有逻辑
-    if (!apiKeys || typeof apiKeys !== 'string') {
+    // 第一步：预处理，统一转换为数组
+    let keys: string[];
+    
+    if (Array.isArray(apiKeys)) {
+      // 数组输入：直接过滤使用
+      keys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
+    } else if (typeof apiKeys === 'string') {
+      // 字符串输入：按逗号分割
+      keys = apiKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    } else {
+      // 无效输入类型
+      modelLogger.warn('Invalid API keys input type', { type: typeof apiKeys });
       return "";
     }
-
-    const keys = apiKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
     
     if (keys.length === 0) {
       return "";
     }
     
-    if (keys.length === 1) {
-      return keys[0];
+    // 第二步：根据数组长度判断处理逻辑
+    if (keys.length >= 2) {
+      // 情况 1：多个 key，直接在这个数组中处理
+      return handleMultipleKeys(keys);
+    } else {
+      // 情况 2：单个 key，需要反查 provider 然后获取完整的 key 列表
+      return handleSingleKey(keys[0]);
     }
-    
-    // 通过多种方式确定 provider
-    let provider = "";
-    
-    // 1. 通过 key 反查 provider
-    for (const key of keys) {
-      const mappedProvider = keyToProviderMap.get(key);
-      if (mappedProvider) {
-        provider = mappedProvider;
-        break;
-      }
-    }
-    
-    // 2. 如果找不到，尝试从调用栈推断
-    if (!provider) {
-      provider = inferProviderFromCallStack();
-    }
-    
-    // 3. 如果还是找不到对应的 provider，使用原有逻辑（向后兼容）
-    if (!provider) {
-      return shuffle(keys)[0];
-    }
-    
-    // 建立映射关系（用于下次调用）
-    buildKeyToProviderMap(provider, apiKeys);
-    
-    // 获取该 provider 的失败 key 记录
-    const failedKeyMap = globalKeyStatus.get(provider) || new Map();
-    const now = Date.now();
-    
-    // 过滤掉失败的 key
-    const availableKeys = keys.filter(key => {
-      const failedStatus = failedKeyMap.get(key);
-      if (!failedStatus) return true;
-      
-      // 检查是否过了冷却期
-      const cooldownTime = getCooldownTime(failedStatus.statusCode || 0);
-      return now - failedStatus.failedAt > cooldownTime;
-    });
-    
-    if (availableKeys.length === 0) {
-      throw new Error(`No available API keys for provider: ${provider}`);
-    }
-    
-    // 随机选择一个可用的 key
-    return shuffle(availableKeys)[0];
   } catch (error) {
-    // 如果任何步骤出错，回退到原有逻辑（向后兼容）
-    console.warn('API key polling failed, falling back to random selection:', error);
-    const keys = apiKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    // 错误处理：回退到基础逻辑
+    modelLogger.warn('API key polling failed, falling back to random selection', error);
+    return fallbackKeySelection(apiKeys);
+  }
+}
+
+// 处理多个 key 的情况
+function handleMultipleKeys(keys: string[]): string {
+  const provider = findProviderForKeys(keys);
+  return selectAvailableKey(keys, provider);
+}
+
+// 处理单个 key 的情况
+function handleSingleKey(key: string): string {
+  const provider = keyToProviderMap.get(key);
+  
+  if (!provider) {
+    return key;
+  }
+  
+  const allProviderKeys = getAllKeysForProvider(provider);
+  
+  if (allProviderKeys.length <= 1) {
+    return key;
+  }
+  
+  return selectAvailableKey(allProviderKeys, provider);
+}
+
+// 通用的 key 选择逻辑 - 提取公共功能
+function selectAvailableKey(keys: string[], provider: string): string {
+  if (provider) {
+    const availableKeys = filterAvailableKeys(keys, provider);
+    
+    if (availableKeys.length > 0) {
+      return shuffle(availableKeys)[0];
+    }
+    
+    // 没有可用 key，记录警告
+    modelLogger.warn(`No available API keys for provider: ${provider}, returning random key`);
+  }
+  
+  // 没有 provider 或没有可用 key，直接随机选择
+  return shuffle(keys)[0];
+}
+
+// 过滤可用的 key - 提取公共功能
+function filterAvailableKeys(keys: string[], provider: string): string[] {
+  const failedKeyMap = globalKeyStatus.get(provider) || new Map();
+  const now = Date.now();
+  
+  return keys.filter(key => {
+    const failedStatus = failedKeyMap.get(key);
+    if (!failedStatus) return true;
+    
+    const cooldownTime = getCooldownTime(failedStatus.statusCode || 0);
+    return now - failedStatus.failedAt > cooldownTime;
+  });
+}
+
+// 为 keys 查找 provider
+function findProviderForKeys(keys: string[]): string {
+  // 遍历 keys，找到第一个有映射的 provider
+  for (const key of keys) {
+    const provider = keyToProviderMap.get(key);
+    if (provider) {
+      return provider;
+    }
+  }
+  
+  // 如果没有找到，尝试从调用栈推断
+  return inferProviderFromCallStack();
+}
+
+// 获取指定 provider 的所有 key
+function getAllKeysForProvider(provider: string): string[] {
+  // 遍历 keyToProviderMap，找到属于该 provider 的所有 key
+  const providerKeys: string[] = [];
+  
+  for (const [key, mappedProvider] of keyToProviderMap.entries()) {
+    if (mappedProvider === provider) {
+      providerKeys.push(key);
+    }
+  }
+  
+  return providerKeys;
+}
+
+// 回退选择逻辑
+function fallbackKeySelection(apiKeys: string | string[]): string {
+  if (Array.isArray(apiKeys)) {
+    const validKeys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
+    return validKeys.length > 0 ? shuffle(validKeys)[0] : "";
+  } else {
+    const keys = (apiKeys as string).split(',').map(k => k.trim()).filter(k => k.length > 0);
     return keys.length > 0 ? shuffle(keys)[0] : "";
   }
 }
@@ -190,7 +253,7 @@ export function markApiKeyFailed(key: string, statusCode: number = 0): void {
     
     const provider = keyToProviderMap.get(key);
     if (!provider) {
-      console.warn('Cannot mark key as failed: provider not found for key');
+      modelLogger.warn('Cannot mark key as failed: provider not found for key');
       return;
     }
     
@@ -213,7 +276,7 @@ export function markApiKeyFailed(key: string, statusCode: number = 0): void {
       });
     }
   } catch (error) {
-    console.warn('Failed to mark API key as failed:', error);
+    modelLogger.warn('Failed to mark API key as failed', error);
   }
 }
 
@@ -239,7 +302,7 @@ export function resetApiKeyStatus(key?: string): void {
       keyToProviderMap.clear();
     }
   } catch (error) {
-    console.warn('Failed to reset API key status:', error);
+    modelLogger.warn('Failed to reset API key status', error);
   }
 }
 
@@ -288,7 +351,7 @@ export function getApiKeyStatusSummary(provider?: string) {
       };
     }
   } catch (error) {
-    console.warn('Failed to get API key status summary:', error);
+    modelLogger.warn('Failed to get API key status summary', error);
     return {
       providers: [],
       totalProviders: 0
