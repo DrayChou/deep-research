@@ -1,6 +1,10 @@
 import { completePath } from "@/utils/url";
 import { NextRequest } from "next/server";
 import { parseJWT, isJWTExpired, isValidJWTFormat } from "@/utils/jwt";
+import { logger } from "@/utils/logger";
+
+// 创建API工具专用的日志实例
+const apiLogger = logger.getInstance('API-Utils');
 
 // JWT验证和配置查询相关接口
 interface UserConfig {
@@ -181,20 +185,20 @@ export function inferDataBaseUrlFromRequest(req: NextRequest): string {
   // 1. 优先从URL参数中获取
   const dataBaseUrlFromParams = req.nextUrl.searchParams.get('dataBaseUrl');
   if (dataBaseUrlFromParams) {
-    console.log('[DataBaseUrl] Found from URL params:', dataBaseUrlFromParams);
+    apiLogger.info('Found from URL params', dataBaseUrlFromParams);
     return dataBaseUrlFromParams;
   }
 
   // 2. 从环境变量获取
   const dataBaseUrlFromEnv = process.env.NEXT_PUBLIC_DATA_CENTER_URL;
   if (dataBaseUrlFromEnv) {
-    console.log('[DataBaseUrl] Found from environment variable:', dataBaseUrlFromEnv);
+    apiLogger.info('Found from environment variable', dataBaseUrlFromEnv);
     return dataBaseUrlFromEnv;
   }
 
   // 3. 从请求路径推断
   const pathname = req.nextUrl.pathname;
-  console.log('[DataBaseUrl] Request pathname:', pathname);
+  apiLogger.debug('Request pathname', pathname);
   
   // 检查是否是 dp2api 路径格式：/dp2api/api/xxx
   if (pathname.startsWith('/dp2api/')) {
@@ -205,7 +209,7 @@ export function inferDataBaseUrlFromRequest(req: NextRequest): string {
                     (host.includes('localhost') ? 'http' : 'https');
     
     const inferredUrl = `${protocol}://${host}`;
-    console.log('[DataBaseUrl] Inferred from dp2api path:', {
+    apiLogger.debug('Inferred from dp2api path', {
       pathname,
       host,
       protocol,
@@ -219,13 +223,13 @@ export function inferDataBaseUrlFromRequest(req: NextRequest): string {
   const forwardedProto = req.headers.get('x-forwarded-proto');
   if (forwardedHost && forwardedProto) {
     const inferredUrl = `${forwardedProto}://${forwardedHost}`;
-    console.log('[DataBaseUrl] Inferred from forwarded headers:', inferredUrl);
+    apiLogger.debug('Inferred from forwarded headers', inferredUrl);
     return inferredUrl;
   }
 
   // 5. 默认回退
   const defaultUrl = 'http://localhost:8080';
-  console.log('[DataBaseUrl] Using default fallback:', defaultUrl);
+  apiLogger.debug('Using default fallback', defaultUrl);
   return defaultUrl;
 }
 
@@ -305,8 +309,8 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
       apiUrl = `${baseUrl}/api/v1/system-configs?category=deep-research`;
     }
 
-    console.log('[JWT Validation] Fetching system-configs from:', apiUrl);
-    console.log('[JWT Validation] Using JWT:', `${jwt.substring(0, 20)}...`);
+    apiLogger.info('Fetching system-configs from', apiUrl);
+    apiLogger.debug('Using JWT', `${jwt.substring(0, 20)}...`);
 
     const response = await fetch(apiUrl, {
       method: 'GET',
@@ -316,16 +320,16 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
       },
     });
 
-    console.log('[JWT Validation] System-configs response status:', response.status);
+    apiLogger.debug('System-configs response status', response.status);
 
     if (!response.ok) {
       // 获取详细的错误信息
       let responseText = '';
       try {
         responseText = await response.text();
-        console.log('[JWT Validation] Error response body:', responseText);
+        apiLogger.debug('Error response body', responseText);
       } catch {
-        console.log('[JWT Validation] Could not read error response body');
+        apiLogger.debug('Could not read error response body');
       }
 
       // 如果查询配置失败，说明JWT无效或权限不足
@@ -338,7 +342,7 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
         errorMessage = `Authentication error: ${response.status} ${response.statusText}`;
       }
       
-      console.log('[JWT Validation] System-configs fetch failed:', {
+      apiLogger.error('System-configs fetch failed', undefined, {
         status: response.status,
         statusText: response.statusText,
         error: errorMessage,
@@ -348,7 +352,7 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
     }
 
     const responseData = await response.json();
-    console.log('[JWT Validation] System-configs response received:', {
+    apiLogger.debug('System-configs response received', {
       hasResponse: !!responseData,
       responseCode: responseData?.code,
       responseMessage: responseData?.message,
@@ -363,13 +367,13 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
           configData[item.key] = item.value;
         }
       });
-      console.log('[JWT Validation] Config loaded:', {
+      apiLogger.info('Config loaded', {
         provider: configData.provider,
         searchProvider: configData.searchProvider,
         configCount: Object.keys(configData).length
       });
     } else {
-      console.warn('[JWT Validation] Invalid system-configs response format');
+      apiLogger.warn('Invalid system-configs response format');
     }
     
     return {
@@ -380,7 +384,7 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
     };
 
   } catch (error) {
-    console.error('[JWT] Validation and config query failed:', error);
+    apiLogger.error('Validation and config query failed', error instanceof Error ? error : undefined);
     return {
       valid: false,
       error: error instanceof Error ? error.message : 'Network or server error'
@@ -393,14 +397,14 @@ export async function validateJwtAndGetConfig(jwt: string, dataBaseUrl?: string)
  * 如果有JWT则验证并获取配置，如果没有JWT则返回空配置
  */
 export async function optionalJwtAuthMiddleware(req: NextRequest): Promise<JwtValidationResult> {
-  console.log('[JWT Auth] Starting optional JWT authentication...');
+  apiLogger.info('Starting optional JWT authentication...');
   
   // 从请求中提取JWT
   const jwt = extractJwtFromRequest(req);
   
   // 如果没有提供JWT，返回有效但空配置的结果
   if (!jwt) {
-    console.log('[JWT Auth] No JWT provided, using default configuration');
+    apiLogger.info('No JWT provided, using default configuration');
     return { 
       valid: true, 
       config: {},
@@ -409,24 +413,24 @@ export async function optionalJwtAuthMiddleware(req: NextRequest): Promise<JwtVa
     };
   }
 
-  console.log('[JWT Auth] JWT found, validating and fetching config...');
+  apiLogger.info('JWT found, validating and fetching config...');
   
   // 智能推断数据中心URL
   const dataBaseUrl = inferDataBaseUrlFromRequest(req);
 
-  console.log('[JWT Auth] Data center URL:', dataBaseUrl);
+  apiLogger.info('Data center URL', dataBaseUrl);
 
   // 验证JWT并获取配置
   const result = await validateJwtAndGetConfig(jwt, dataBaseUrl);
   
   if (result.valid && result.config) {
-    console.log('[JWT Auth] Configuration loaded successfully:', {
+    apiLogger.info('Configuration loaded successfully', {
       userId: result.userId,
       username: result.username,
       configCount: Object.keys(result.config || {}).length
     });
   } else {
-    console.log('[JWT Auth] Failed to load configuration:', result.error);
+    apiLogger.error('Failed to load configuration', undefined, { error: result.error });
   }
   
   return result;
@@ -687,13 +691,13 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
     
     searchProvider = config.searchProvider || defaultSearchProvider || 'tavily';
     
-    // 确保searchProvider不为空字符串或null
+    // 确保 searchProvider 不为空字符串或 null
     if (!searchProvider || searchProvider.trim() === '') {
       console.warn('[Search Config] Empty search provider in JWT config, using tavily as fallback');
       searchProvider = 'tavily';
     }
     
-    // 额外的安全检查，确保searchProvider不是空白字符串
+    // 额外的安全检查，确保 searchProvider 不是空白字符串
     searchProvider = searchProvider.trim();
     if (searchProvider === '') {
       console.warn('[Search Config] Search provider is empty after trimming, forcing tavily');
@@ -706,11 +710,11 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
       selected: searchProvider
     });
   } else {
-    // 模式2：没有JWT配置，使用URL参数+环境变量模式
+    // 模式 2：没有 JWT 配置，使用 URL 参数 + 环境变量模式
     const urlSearchProvider = req.nextUrl.searchParams.get('searchProvider');
     
     if (!urlSearchProvider || urlSearchProvider.trim() === '') {
-      // 既没有JWT也没有有效的URL参数，这是无效状态
+      // 既没有 JWT 也没有有效的 URL 参数，这是无效状态
       throw new Error('No valid search configuration found. Either provide JWT token or URL parameters with environment variables.');
     }
     
@@ -721,7 +725,7 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
     });
   }
   
-  // 安全获取环境变量baseURL
+  // 安全获取环境变量 baseURL
   const getEnvSearchBaseURL = (provider: string) => {
     try {
       const baseURL = getSearchProviderBaseURL(provider);
@@ -734,42 +738,60 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
   };
   
   if (hasJwtConfig) {
-    // 模式1：有JWT配置，完全使用JWT配置
+    // 模式 1：有 JWT 配置，但需要和环境变量合并
     const config = getFinalConfig(jwtConfig, req);
     
+    // 获取 JWT 配置的 key
+    let jwtApiKey = '';
     switch (searchProvider) {
       case 'tavily':
-        apiKey = config.tavilyApiKey || config.searchApiKey || '';
+        jwtApiKey = config.tavilyApiKey || config.searchApiKey || '';
         apiProxy = config.tavilyApiProxy || config.searchApiProxy || '';
         break;
       case 'firecrawl':
-        apiKey = config.firecrawlApiKey || config.searchApiKey || '';
+        jwtApiKey = config.firecrawlApiKey || config.searchApiKey || '';
         apiProxy = config.firecrawlApiProxy || config.searchApiProxy || '';
         break;
       case 'exa':
-        apiKey = config.exaApiKey || config.searchApiKey || '';
+        jwtApiKey = config.exaApiKey || config.searchApiKey || '';
         apiProxy = config.exaApiProxy || config.searchApiProxy || '';
         break;
       case 'bocha':
-        apiKey = config.bochaApiKey || config.searchApiKey || '';
+        jwtApiKey = config.bochaApiKey || config.searchApiKey || '';
         apiProxy = config.bochaApiProxy || config.searchApiProxy || '';
         break;
       case 'searxng':
-        apiKey = config.searxngApiKey || config.searchApiKey || '';
+        jwtApiKey = config.searxngApiKey || config.searchApiKey || '';
         apiProxy = config.searxngApiProxy || config.searchApiProxy || '';
         break;
       case 'model':
-        // model模式不需要API key和proxy
-        apiKey = '';
+        // model 模式不需要 API key 和 proxy
+        jwtApiKey = '';
         apiProxy = '';
         break;
       default:
-        // 未知searchProvider，使用通用配置
-        apiKey = config.searchApiKey || '';
+        // 未知 searchProvider，使用通用配置
+        jwtApiKey = config.searchApiKey || '';
         apiProxy = config.searchApiProxy || '';
     }
     
-    // JWT模式下，检查关键配置是否缺失
+    // 获取环境变量中的 key 作为补充
+    const envApiKey = getSearchProviderApiKey(searchProvider);
+    
+    // 合并 JWT 和环境变量的 key，去重
+    apiKey = mergeAndDeduplicateKeys(jwtApiKey, envApiKey);
+    
+    console.log('[Search Config] JWT + ENV merged keys:', {
+      searchProvider,
+      jwtKeyCount: jwtApiKey ? jwtApiKey.split(',').length : 0,
+      envKeyCount: envApiKey ? envApiKey.split(',').length : 0,
+      mergedKeyCount: apiKey ? apiKey.split(',').length : 0,
+      jwtKeys: jwtApiKey ? jwtApiKey.split(',').map(k => k.substring(0, 8) + '...') : [],
+      envKeys: envApiKey ? envApiKey.split(',').map(k => k.substring(0, 8) + '...') : [],
+      mergedKeys: apiKey ? apiKey.split(',').map(k => k.substring(0, 8) + '...') : []
+    });
+    
+    // JWT 模式下，检查关键配置是否缺失
     if (!apiKey && ['tavily', 'firecrawl', 'exa', 'bocha'].includes(searchProvider)) {
       console.warn(`[Search Config] JWT mode: Missing API key for search provider ${searchProvider}`);
     }
@@ -777,7 +799,7 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
       console.warn(`[Search Config] JWT mode: Missing API proxy for search provider ${searchProvider}`);
     }
   } else {
-    // 模式2：没有JWT配置，完全依赖环境变量（URL参数指定searchProvider，env提供apiKey和baseURL）
+    // 模式 2：没有 JWT 配置，完全依赖环境变量（URL 参数指定 searchProvider，env 提供 apiKey 和 baseURL）
     apiKey = getSearchProviderApiKey(searchProvider);
     apiProxy = getEnvSearchBaseURL(searchProvider);
     
@@ -804,13 +826,36 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
   });
   
   if (hasJwtConfig) {
-    // 有JWT配置，返回合并后的配置
+    // 有 JWT 配置，返回合并后的配置
     const config = getFinalConfig(jwtConfig, req);
     return { ...config, searchProvider, apiKey, apiProxy };
   } else {
-    // 没有JWT配置，只返回基本的配置
+    // 没有 JWT 配置，只返回基本的配置
     return { searchProvider, apiKey, apiProxy };
   }
+}
+
+/**
+ * 合并和去重 API keys
+ * 将 JWT 配置的 key 和环境变量的 key 合并，并去重
+ */
+function mergeAndDeduplicateKeys(jwtKeys: string, envKeys: string): string {
+  const allKeys: string[] = [];
+  
+  // 添加 JWT 配置的 key
+  if (jwtKeys && jwtKeys.trim()) {
+    allKeys.push(...jwtKeys.split(',').map(k => k.trim()).filter(k => k));
+  }
+  
+  // 添加环境变量的 key
+  if (envKeys && envKeys.trim()) {
+    allKeys.push(...envKeys.split(',').map(k => k.trim()).filter(k => k));
+  }
+  
+  // 去重
+  const uniqueKeys = [...new Set(allKeys)];
+  
+  return uniqueKeys.join(',');
 }
 
 /**
