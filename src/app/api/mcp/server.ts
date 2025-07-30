@@ -32,7 +32,7 @@ function initDeepResearchServer({
     },
     searchProvider: {
       baseURL: getSearchProviderBaseURL(SEARCH_PROVIDER),
-      apiKey: multiApiKeyPolling(getSearchProviderApiKey(SEARCH_PROVIDER)),
+      apiKey: getSearchProviderApiKey(SEARCH_PROVIDER), // 传递原始的多key字符串，让DeepResearch内部处理
       provider: SEARCH_PROVIDER,
       maxResult,
     },

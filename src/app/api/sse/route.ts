@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         },
         searchProvider: {
           baseURL: searchConfig.apiProxy,
-          apiKey: multiApiKeyPolling(searchConfig.apiKey),
+          apiKey: searchConfig.apiKey, // 传递原始的多key字符串，让DeepResearch内部处理
           provider: finalSearchProvider,
           maxResult,
         },
