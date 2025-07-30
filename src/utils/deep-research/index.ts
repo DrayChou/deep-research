@@ -283,24 +283,92 @@ class DeepResearch {
         duration
       );
 
-      // 改进的 JSON 解析，添加重试策略和详细的错误处理
+      // 改进的 JSON 解析，添加重试策略 - 重新调用 AI 接口
       let data;
-      try {
-        const cleanedContent = removeJsonMarkdown(content);
-        this.logger.debug('Attempting to parse SERP query JSON', {
-          originalLength: text.length,
-          processedLength: content.length,
-          cleanedLength: cleanedContent.length,
-          cleanedPreview: cleanedContent.substring(0, 200) + (cleanedContent.length > 200 ? '...' : '')
+      let parseSuccess = false;
+      let retryCount = 0;
+      const maxRetries = 3;
+      let currentText = text;
+      let currentContent = content;
+      
+      while (!parseSuccess && retryCount < maxRetries) {
+        try {
+          const cleanedContent = removeJsonMarkdown(currentContent);
+          this.logger.debug(`Attempting to parse SERP query JSON (attempt ${retryCount + 1}/${maxRetries})`, {
+            originalLength: currentText.length,
+            processedLength: currentContent.length,
+            cleanedLength: cleanedContent.length,
+            cleanedPreview: cleanedContent.substring(0, 200) + (cleanedContent.length > 200 ? '...' : '')
+          });
+          
+          data = JSON.parse(cleanedContent);
+          parseSuccess = true;
+          
+          this.logger.info('SERP query JSON parsed successfully', {
+            attempt: retryCount + 1,
+            dataLength: Array.isArray(data) ? data.length : 0
+          });
+      } catch (parseError) {
+        retryCount++;
+        
+        this.logger.warn(`JSON parse failed (attempt ${retryCount}/${maxRetries}), retrying with new AI call`, {
+          error: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+          contentPreview: currentContent.substring(0, 300) + (currentContent.length > 300 ? '...' : ''),
+          contentLength: currentContent.length,
+          fullOriginalContent: currentText,
+          fullCleanedContent: removeJsonMarkdown(currentContent)
         });
         
-        data = JSON.parse(cleanedContent);
-      } catch (parseError) {
-        this.logger.warn('Initial JSON parse failed, attempting repair', {
-          error: parseError instanceof Error ? parseError.message : 'Unknown parse error',
-          contentPreview: content.substring(0, 300) + (content.length > 300 ? '...' : ''),
-          contentLength: content.length
-        });
+        if (retryCount < maxRetries) {
+          // 重新调用AI接口获取新的结果
+          this.logger.info(`Retrying AI call for SERP query generation (attempt ${retryCount + 1}/${maxRetries})`);
+          
+          try {
+            const retryModel = await this.getThinkingModel();
+            const enhancedPrompt = userPrompt + 
+              (retryCount > 1 ? '\n\nIMPORTANT: Please respond with valid JSON format only. No markdown, no extra text, just the JSON array.' : '') +
+              (retryCount > 2 ? '\n\nCRITICAL: You MUST return valid JSON. Format: [{"query": "...", "researchGoal": "..."}]' : '');
+            
+            const { text: retryText } = await generateText({
+              model: retryModel,
+              system: systemPrompt,
+              prompt: enhancedPrompt,
+            });
+            
+            // 重新处理返回的内容
+            currentContent = "";
+            const retryThinkTagProcessor = new ThinkTagStreamProcessor();
+            retryThinkTagProcessor.processChunk(retryText, (data) => {
+              currentContent += data;
+            });
+            retryThinkTagProcessor.end();
+            currentText = retryText;
+            
+            this.logger.debug('Retrieved new AI response for SERP query', {
+              retryAttempt: retryCount + 1,
+              responseLength: retryText.length,
+              processedLength: currentContent.length
+            });
+            
+          } catch (retryError) {
+            this.logger.error('AI retry call failed', retryError instanceof Error ? retryError : undefined);
+            // 如果AI调用失败，继续下一次重试
+          }
+          
+          // 短暂延迟后继续
+          await new Promise(resolve => setTimeout(resolve, 200 * retryCount));
+        } else {
+          // 如果所有重试都失败了，抛出异常中断任务
+          this.logger.error('SERP query JSON parsing failed after all retries', undefined, {
+            retryAttempts: maxRetries,
+            lastResponse: currentText,
+            lastProcessedContent: currentContent,
+            errorDetails: 'AI returned malformed JSON that could not be repaired after multiple attempts'
+          });
+          
+          throw new Error(`Failed to parse SERP query JSON after ${maxRetries} attempts. AI response was not in valid JSON format. Please check the AI model configuration and prompts.`);
+        }
+      }
         
         // 尝试修复常见的 JSON 格式问题
         let repairedContent = removeJsonMarkdown(content);
