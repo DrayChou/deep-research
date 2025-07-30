@@ -99,7 +99,24 @@ export const serpQueriesPrompt = `This is the report plan after user confirmatio
 
 Based on previous report plan, generate a list of SERP queries to further research the topic. Make sure each query is unique and not similar to each other.
 
-IMPORTANT: For each research goal, you must generate BOTH Chinese and English search queries to ensure comprehensive research coverage. Each query pair should cover the same research goal but in different languages.
+CRITICAL REQUIREMENT - Bilingual Query Generation:
+- For EVERY research goal, you MUST generate BOTH Chinese and English search queries
+- Generate pairs of queries covering the same research objective in both languages
+- English queries often yield higher quality academic, technical, and research documentation
+- Each language query should use the most effective keywords/terms for that language's search ecosystem
+
+Query Generation Strategy:
+1. For each research goal, create a Chinese query using natural Chinese search terms
+2. Create a corresponding English query that targets the same research objective
+3. English queries should use academic/technical terminology when appropriate
+4. Chinese queries should use commonly used Chinese terms and phrases
+
+Example Pairs:
+- Chinese: "深度学习算法优化方法 2024" → English: "deep learning algorithm optimization methods 2024"
+- Chinese: "区块链技术商业应用案例" → English: "blockchain technology business applications case studies"
+- Chinese: "可持续发展政策影响分析" → English: "sustainable development policy impact analysis"
+
+This bilingual approach maximizes research quality by accessing both Chinese and international sources.
 
 ${serpQuerySchemaPrompt}`;
 
@@ -183,9 +200,15 @@ This is the user's suggestion for research direction:
 </SUGGESTION>
 
 Based on previous research and user research suggestions, determine whether further research is needed.
-If further research is needed, list of follow-up SERP queries to research the topic further.
+If further research is needed, generate follow-up SERP queries to research the topic further.
 Make sure each query is unique and not similar to each other.
 If you believe no further research is needed, you can output an empty queries.
+
+IMPORTANT - Maintain Bilingual Approach:
+- Continue the bilingual query strategy from initial research
+- For any new research goals, generate BOTH Chinese and English queries
+- Focus on filling research gaps identified from previous learnings
+- English queries should target high-quality academic and technical sources
 
 ${serpQuerySchemaPrompt}`;
 
