@@ -76,7 +76,11 @@ function Home() {
     if (searchParams.get('apiProxy')) urlParams.apiProxy = searchParams.get('apiProxy');
     if (searchParams.get('thinkingModel')) urlParams.thinkingModel = searchParams.get('thinkingModel');
     if (searchParams.get('taskModel')) urlParams.taskModel = searchParams.get('taskModel');
-    if (searchParams.get('mode')) urlParams.mode = searchParams.get('mode');
+    if (searchParams.get('mode')) {
+      const modeParam = searchParams.get('mode');
+      // 映射 "research" 模式到 "local" 模式，因为 deep-research 只支持 "local" 和 "proxy"
+      urlParams.mode = modeParam === 'research' ? 'local' : modeParam;
+    }
     
     // 认证配置
     if (searchParams.get('jwt')) urlParams.jwt = searchParams.get('jwt');
