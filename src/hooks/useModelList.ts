@@ -297,16 +297,24 @@ function useModelList() {
         return [];
       }
       const apiKey = multiApiKeyPolling(openAICompatibleApiKey);
-      const response = await fetch(
-        mode === "local"
-          ? completePath(openAICompatibleApiProxy, "/v1") + "/models"
-          : "/api/ai/openaicompatible/v1/models",
-        {
-          headers: {
-            authorization: `Bearer ${mode === "local" ? apiKey : accessKey}`,
-          },
-        }
-      );
+      
+      const requestUrl = mode === "local"
+        ? completePath(openAICompatibleApiProxy, "/v1") + "/models"
+        : "/api/ai/openaicompatible/v1/models";
+      
+      console.log(`[useModelList] openaicompatible request:`, {
+        mode,
+        provider,
+        requestUrl,
+        openAICompatibleApiProxy,
+        hasApiKey: !!openAICompatibleApiKey
+      });
+      
+      const response = await fetch(requestUrl, {
+        headers: {
+          authorization: `Bearer ${mode === "local" ? apiKey : accessKey}`,
+        },
+      });
       const { data = [] } = await response.json();
       const newModelList = (data as OpenAIModel[]).map((item) => item.id);
       setModelList(newModelList);
