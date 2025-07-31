@@ -99,24 +99,30 @@ export const serpQueriesPrompt = `This is the report plan after user confirmatio
 
 Based on previous report plan, generate a list of SERP queries to further research the topic. Make sure each query is unique and not similar to each other.
 
-CRITICAL REQUIREMENT - Bilingual Query Generation:
-- For EVERY research goal, you MUST generate BOTH Chinese and English search queries
-- Generate pairs of queries covering the same research objective in both languages
-- English queries often yield higher quality academic, technical, and research documentation
-- Each language query should use the most effective keywords/terms for that language's search ecosystem
+CRITICAL REQUIREMENT - Smart Bilingual Query Generation:
+- For EACH research goal, generate ONE query that combines both Chinese and English keywords
+- This approach maximizes search coverage while maintaining efficiency
+- Combine the most effective Chinese and English terms for each research objective
+- Use natural language mixing that search engines can effectively process
 
-Query Generation Strategy:
-1. For each research goal, create a Chinese query using natural Chinese search terms
-2. Create a corresponding English query that targets the same research objective
-3. English queries should use academic/technical terminology when appropriate
-4. Chinese queries should use commonly used Chinese terms and phrases
+Smart Bilingual Query Strategy:
+1. Identify the core concept in both Chinese and English
+2. Combine key terms from both languages in a single search query
+3. Place the most important terms (regardless of language) first
+4. Use natural keyword combinations that leverage multilingual search capabilities
 
-Example Pairs:
-- Chinese: "深度学习算法优化方法 2024" → English: "deep learning algorithm optimization methods 2024"
-- Chinese: "区块链技术商业应用案例" → English: "blockchain technology business applications case studies"
-- Chinese: "可持续发展政策影响分析" → English: "sustainable development policy impact analysis"
+Example Combined Queries:
+- "深度学习算法优化 deep learning algorithm optimization 2024"
+- "区块链技术应用 blockchain business applications case studies"
+- "可持续发展政策 sustainable development policy impact analysis"
+- "人工智能伦理 AI ethics regulations guidelines"
+- "气候变化经济影响 climate change economic impact"
 
-This bilingual approach maximizes research quality by accessing both Chinese and international sources.
+This smart bilingual approach:
+- Reduces query redundancy while maintaining comprehensive coverage
+- Leverages search engines' multilingual processing capabilities
+- Accesses both Chinese and international sources efficiently
+- Maintains research quality with optimized resource usage
 
 ${serpQuerySchemaPrompt}`;
 
@@ -204,11 +210,12 @@ If further research is needed, generate follow-up SERP queries to research the t
 Make sure each query is unique and not similar to each other.
 If you believe no further research is needed, you can output an empty queries.
 
-IMPORTANT - Maintain Bilingual Approach:
-- Continue the bilingual query strategy from initial research
-- For any new research goals, generate BOTH Chinese and English queries
+IMPORTANT - Maintain Smart Bilingual Approach:
+- Continue the smart bilingual query strategy from initial research
+- For any new research goals, generate ONE combined query with both Chinese and English keywords
 - Focus on filling research gaps identified from previous learnings
-- English queries should target high-quality academic and technical sources
+- Combine terms that target both Chinese sources and international academic/technical sources
+- Use the format: "中文关键词 English keywords additional_terms"
 
 ${serpQuerySchemaPrompt}`;
 

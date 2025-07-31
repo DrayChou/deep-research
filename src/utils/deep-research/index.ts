@@ -320,25 +320,45 @@ class DeepResearch {
           })
         );
 
+        // 分析查询的语言特征
+        const bilingualQueries = tasks.filter(task => 
+          /[\u4e00-\u9fff]/.test(task.query) && /[a-zA-Z]/.test(task.query)
+        );
+        const chineseOnlyQueries = tasks.filter(task => 
+          /[\u4e00-\u9fff]/.test(task.query) && !/[a-zA-Z]/.test(task.query)
+        );
+        const englishOnlyQueries = tasks.filter(task => 
+          !/[\u4e00-\u9fff]/.test(task.query) && /[a-zA-Z]/.test(task.query)
+        );
+
         // 打印生成的查询列表日志
-        this.logger.info('Generated SERP queries list:', {
+        this.logger.info('Generated SERP queries list (Smart Bilingual Strategy):', {
           totalQueries: tasks.length,
+          bilingualQueries: bilingualQueries.length,
+          chineseOnlyQueries: chineseOnlyQueries.length,
+          englishOnlyQueries: englishOnlyQueries.length,
+          optimizationEfficiency: `${Math.round((bilingualQueries.length / tasks.length) * 100)}% bilingual queries`,
           attempt,
           queries: tasks.map((task, index) => ({
             index: index + 1,
             query: task.query,
             researchGoal: task.researchGoal.substring(0, 100) + (task.researchGoal.length > 100 ? '...' : ''),
             queryLength: task.query.length,
-            goalLength: task.researchGoal.length
+            goalLength: task.researchGoal.length,
+            type: bilingualQueries.includes(task) ? 'bilingual' : 
+                  chineseOnlyQueries.includes(task) ? 'chinese' : 'english'
           }))
         });
 
         // 详细打印每个查询（用于调试）
         tasks.forEach((task, index) => {
-          this.logger.debug(`Query ${index + 1}:`, {
+          const queryType = bilingualQueries.includes(task) ? 'bilingual' : 
+                           chineseOnlyQueries.includes(task) ? 'chinese' : 'english';
+          this.logger.debug(`Query ${index + 1} [${queryType}]:`, {
             query: task.query,
             researchGoal: task.researchGoal,
-            language: /[\u4e00-\u9fff]/.test(task.query) ? 'Chinese' : 'English'
+            hasChinese: /[\u4e00-\u9fff]/.test(task.query),
+            hasEnglish: /[a-zA-Z]/.test(task.query)
           });
         });
 
@@ -347,8 +367,10 @@ class DeepResearch {
           duration,
           totalAttempts: attempt,
           queries: tasks.map(t => t.query.substring(0, 50)),
-          chineseQueries: tasks.filter(t => /[\u4e00-\u9fff]/.test(t.query)).length,
-          englishQueries: tasks.filter(t => !/[\u4e00-\u9fff]/.test(t.query)).length
+          bilingualQueries: bilingualQueries.length,
+          chineseOnlyQueries: chineseOnlyQueries.length,
+          englishOnlyQueries: englishOnlyQueries.length,
+          optimizationRate: `${Math.round((bilingualQueries.length / tasks.length) * 100)}%`
         });
 
         this.onMessage("progress", {
