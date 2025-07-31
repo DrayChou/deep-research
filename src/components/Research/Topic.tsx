@@ -57,6 +57,7 @@ function Topic() {
   } = useAccurateTimer();
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [openCrawler, setOpenCrawler] = useState<boolean>(false);
+  const [hasHydrated, setHasHydrated] = useState<boolean>(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -66,12 +67,21 @@ function Topic() {
   });
 
   function handleCheck(): boolean {
+    // Wait for hydration to complete before checking configuration
+    if (!hasHydrated) {
+      // During hydration, don't show settings dialog
+      return true;
+    }
+    
     const { mode } = useSettingStore.getState();
     if ((mode === "local" && hasApiKey()) || mode === "proxy") {
       return true;
     } else {
-      const { setOpenSetting } = useGlobalStore.getState();
-      setOpenSetting(true);
+      // Only show settings dialog if we're not in a valid state
+      if ((mode === "local" && !hasApiKey()) || (mode === "" && !hasApiKey()) || (mode !== "local" && mode !== "proxy")) {
+        const { setOpenSetting } = useGlobalStore.getState();
+        setOpenSetting(true);
+      }
       return false;
     }
   }
@@ -124,6 +134,39 @@ function Topic() {
   useEffect(() => {
     form.setValue("topic", taskStore.question);
   }, [taskStore.question, form]);
+
+  // Track hydration status from the store
+  useEffect(() => {
+    const unsubscribe = useSettingStore.subscribe((state) => {
+      if (state._hasHydrated && !hasHydrated) {
+        setHasHydrated(true);
+      }
+    });
+    
+    // Check if already hydrated
+    if (useSettingStore.getState()._hasHydrated) {
+      setHasHydrated(true);
+    }
+    
+    return unsubscribe;
+  }, [hasHydrated]);
+
+  // Re-check configuration after hydration is complete
+  useEffect(() => {
+    if (hasHydrated) {
+      // Small delay to ensure all state is fully loaded
+      const timer = setTimeout(() => {
+        // Only show settings if not already configured properly
+        const { mode } = useSettingStore.getState();
+        if ((mode === "local" && !hasApiKey()) || (mode === "" && !hasApiKey())) {
+          const { setOpenSetting } = useGlobalStore.getState();
+          setOpenSetting(true);
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [hasHydrated, hasApiKey]);
   return (
     <section className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-200 dark:border-blue-800 mt-4 print:hidden shadow-sm">
       <div className="flex justify-between items-center border-b border-blue-200 dark:border-blue-700 mb-4 pb-3">        <div className="flex items-center gap-3">
