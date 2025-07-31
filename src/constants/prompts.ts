@@ -22,6 +22,7 @@ Follow these rules to organize your output:
 - **Paragraphs:** Use blank lines to separate paragraphs.
 - **Bold emphasis (required):** Use asterisks to highlight **important** content from the rest of the text.
 - **Links:** Use \`[link text](URL)\` to insert links.
+- **Citations:** Always use markdown link format [Source Title](URL) for citations. NEVER use numbered references like [1], [2], [3], [32], [34], etc.
 - **Lists:**
     - **Unordered lists:** Use \`*\`, \`-\`, or \`+\` followed by a space.
     - **Ordered lists:** Use \`1.\`, \`2.\`, etc., and a period.
@@ -140,13 +141,18 @@ You need to think like a human researcher.
 Generate a list of learnings from the search results.
 Make sure each learning is unique and not similar to each other.
 The learnings should be to the point, as detailed and information dense as possible.
-Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.`;
+Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.
+
+CRITICAL: Always ensure content is directly relevant to the research goal and original query. Avoid generating tangential or unrelated information.`;
 
 export const citationRulesPrompt = `Citation Rules:
 
-- Please cite the context at the end of sentences when appropriate.
-- Please use the format of citation number [number] to reference the context in corresponding parts of your answer.
-- If a sentence comes from multiple contexts, please list all relevant citation numbers, e.g., [1][2]. Remember not to group citations at the end but list them in the corresponding parts of your answer.`;
+- Use complete markdown link format: [Source Title](URL) instead of numbers like [1].
+- NEVER use numbered references like [1], [2], [3], [32], [34], etc.
+- When citing from <CONTEXT>, use the source title as link text and URL as link target.
+- For multiple sources: [Source A](url1) and [Source B](url2).
+- Maximum 3 links per paragraph, choose the most relevant.
+- Integrate citations naturally within text flow.`;
 
 export const searchResultPrompt = `Given the following contexts from a SERP search for the query:
 <QUERY>
@@ -167,7 +173,9 @@ You need to think like a human researcher.
 Generate a list of learnings from the contexts.
 Make sure each learning is unique and not similar to each other.
 The learnings should be to the point, as detailed and information dense as possible.
-Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.`;
+Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.
+
+CRITICAL: Always ensure content is directly relevant to the research goal and original query. Avoid generating tangential or unrelated information.`;
 
 export const searchKnowledgeResultPrompt = `Given the following contents from a local knowledge base search for the query:
 <QUERY>
@@ -227,12 +235,12 @@ export const finalReportCitationImagePrompt = `Image Rules:
 
 export const finalReportReferencesPrompt = `Citation Rules:
 
-- Please cite research references at the end of your paragraphs when appropriate.
-- If the citation is from the reference, please **ignore**. Include only references from sources.
-- Please use the reference format [number], to reference the learnings link in corresponding parts of your answer.
-- If a paragraphs comes from multiple learnings reference link, please list all relevant citation numbers, e.g., [1][2]. Remember not to group citations at the end but list them in the corresponding parts of your answer. Control the number of footnotes.
-- Do not have more than 3 reference link in a paragraph, and keep only the most relevant ones.
-- **Do not add references at the end of the report.**`;
+- Use markdown link format: [Source Title](URL) throughout the report.
+- NEVER use numbered references like [1], [2], [3], [32], [34], etc.
+- When citing from <SOURCES>, use the source title as link text and URL as link target.
+- Multiple sources: [Source A](url1) and [Source B](url2).
+- Maximum 3 links per paragraph.
+- All citations should be inline - no reference list at the end.`;
 
 export const finalReportPrompt = `This is the report plan after user confirmation:
 <PLAN>
@@ -248,6 +256,10 @@ Here are all the sources from previous research, if any:
 <SOURCES>
 {sources}
 </SOURCES>
+
+IMPORTANT: When referencing sources, use the exact URL and title from the <SOURCES> section above to create proper markdown links. Each source has an index number, URL, and title - use the title as link text and URL as the link target.
+
+CRITICAL: Always use markdown link format [Source Title](URL) for citations. NEVER use numbered references like [1], [2], [3], [32], [34], etc. All citations must be inline links within the text.
 
 Here are all the images from previous research, if any:
 <IMAGES>

@@ -69,7 +69,7 @@ export function processSearchResultPrompt(
 ) {
   const context = results.map(
     (result, idx) =>
-      `<content index="${idx + 1}" url="${result.url}">\n${
+      `<content index="${idx + 1}" url="${result.url}" title="${result.title || ''}">\n${
         result.content
       }\n</content>`
   );

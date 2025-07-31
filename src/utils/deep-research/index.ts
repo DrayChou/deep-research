@@ -823,17 +823,31 @@ class DeepResearch {
           sources.push(part.source);
           sourceCount++;
         } else if (part.type === "finish") {
-          if (sources.length > 0) {
+          // 只有在启用references且报告中没有使用行内链接时，才添加传统引用列表
+          // 检查内容中是否已经包含markdown链接格式（精确的正则表达式）
+          const hasInlineLinks = /\[([^\]]+)\]\(https?:\/\/[^\)]+\)/.test(content);
+          
+          if (sources.length > 0 && enableReferences && !hasInlineLinks) {
+            this.logger.debug('Adding fallback reference list', {
+              sourcesCount: sources.length,
+              hasInlineLinks,
+              contentPreview: content.substring(0, 200)
+            });
+            
             const sourceContent =
-              "\n\n---\n\n" +
+              "\n\n---\n\n## References\n\n" +
               sources
                 .map(
                   (item, idx) =>
-                    `[${idx + 1}]: ${item.url}${item.title ? ` "${item.title.replaceAll('"', " ")}"` : ""
-                    }`
+                    `${idx + 1}. [${item.title || 'Source'}](${item.url})`
                 )
                 .join("\n");
             content += sourceContent;
+          } else if (hasInlineLinks) {
+            this.logger.debug('Inline links detected, skipping reference list', {
+              sourcesCount: sources.length,
+              inlineLinkCount: (content.match(/\[([^\]]+)\]\(https?:\/\/[^\)]+\)/g) || []).length
+            });
           }
 
           // 记录完成状态
@@ -952,6 +966,15 @@ class DeepResearch {
       issues.push('Report lacks proper markdown structure');
     }
 
+    // 检查是否包含正确格式的markdown链接
+    const hasProperLinks = /\[([^\]]+)\]\(https?:\/\/[^\)]+\)/.test(report.finalReport);
+    // 检查是否包含数字引用格式（但排除正常的markdown链接中的数字）
+    const hasNumberReferences = /(?<!\[)\[\d+(?:,\s*\d+)*\](?!\()/g.test(report.finalReport);
+    
+    if (hasNumberReferences && !hasProperLinks) {
+      issues.push('Report contains numbered references like [1], [32], [34] instead of proper markdown links [Source Title](URL)');
+    }
+
     return {
       isValid: issues.length === 0,
       issues,
@@ -960,7 +983,9 @@ class DeepResearch {
         titleLength: report.title?.length || 0,
         learningsCount: report.learnings.length,
         sourcesCount: report.sources.length,
-        imagesCount: report.images.length
+        imagesCount: report.images.length,
+        hasProperMarkdownLinks: hasProperLinks,
+        hasNumberReferences: hasNumberReferences
       }
     };
   }

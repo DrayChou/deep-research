@@ -28,7 +28,8 @@
       "Bash(npm run lint)",
       "Bash(npm run build:*)",
       "Bash(npx eslint:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(npx next lint:*)"
     ],
     "deny": []
   }
