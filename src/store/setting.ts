@@ -4,6 +4,8 @@ import { persist } from "zustand/middleware";
 export interface SettingStore {
   provider: string;
   mode: string;
+  // Internal state for tracking hydration
+  _hasHydrated: boolean;
   apiKey: string;
   apiProxy: string;
   openRouterApiKey: string;
@@ -80,7 +82,8 @@ interface SettingFunction {
 
 export const defaultValues: SettingStore = {
   provider: "google",
-  mode: "",
+  mode: "local",
+  _hasHydrated: false,
   apiKey: "",
   apiProxy: "",
   thinkingModel: "gemini-2.0-flash-thinking-exp",
@@ -150,12 +153,20 @@ export const defaultValues: SettingStore = {
 };
 
 export const useSettingStore = create(
-  persist<SettingStore & SettingFunction>(    (set) => ({
+  persist<SettingStore & SettingFunction>(
+    (set) => ({
       ...defaultValues,
       update: (values) => set(values),
       reset: () => set(defaultValues),
       clear: () => set(defaultValues),
     }),
-    { name: "setting" }
+    {
+      name: "setting",
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state._hasHydrated = true;
+        }
+      },
+    }
   )
 );
