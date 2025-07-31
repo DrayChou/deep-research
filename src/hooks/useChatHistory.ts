@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuthStore } from "@/store/auth";
 import { useTaskStore } from "@/store/task";
 import { chatHistoryService, type DeepResearchState } from "@/services/chatHistoryService";
@@ -10,6 +10,7 @@ import { chatHistoryService, type DeepResearchState } from "@/services/chatHisto
 export const useChatHistory = () => {
   const authStore = useAuthStore();
   const taskStore = useTaskStore();
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // 应用历史状态到本地store
   const applyHistoryToStore = useCallback((historyState: DeepResearchState) => {
@@ -50,7 +51,16 @@ export const useChatHistory = () => {
       if (topicId) {
         // 加载现有话题的历史记录
         console.log('[useChatHistory] 正在加载话题历史记录：', topicId);
-        const historyResult = await chatHistoryService.loadTopicHistory(topicId);
+        setIsLoadingHistory(true);
+        
+        // 设置超时处理
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('加载历史记录超时')), 30000); // 30秒超时
+        });
+        
+        const historyPromise = chatHistoryService.loadTopicHistory(topicId);
+        
+        const historyResult = await Promise.race([historyPromise, timeoutPromise]) as any;
         
         if (historyResult) {
           // 应用历史状态到本地store
@@ -71,6 +81,8 @@ export const useChatHistory = () => {
     } catch (error) {
       console.error('[useChatHistory] 初始化话题失败：', error);
       return null;
+    } finally {
+      setIsLoadingHistory(false);
     }
   }, [applyHistoryToStore]);
 
@@ -258,5 +270,6 @@ export const useChatHistory = () => {
     // 状态信息
     currentTopicId: authStore.topicId,
     isConnected: !!authStore.jwt, // 只需要JWT即可连接，dataBaseUrl会自动推断
+    isLoadingHistory,
   };
 };

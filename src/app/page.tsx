@@ -2,6 +2,7 @@
 import dynamic from "next/dynamic";
 import { useLayoutEffect, useEffect } from "react";
 import { useTheme } from "next-themes";
+import { useTranslation } from "react-i18next";
 import { useGlobalStore } from "@/store/global";
 import { useSettingStore } from "@/store/setting";
 import { useAuthStore } from "@/store/auth";
@@ -24,6 +25,7 @@ const Knowledge = dynamic(() => import("@/components/Knowledge"));
 const JwtStatus = dynamic(() => import("@/components/JwtStatus"));
 
 function Home() {
+  const { t } = useTranslation();
   const {
     openSetting,
     setOpenSetting,
@@ -349,6 +351,26 @@ function Home() {
     <>
       {/* JWT全屏错误界面 - 在最顶层渲染 */}
       <JwtStatus />
+      
+      {/* 历史记录加载状态 */}
+      {chatHistory.isLoadingHistory && (
+        <div className="fixed inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center space-y-6">
+            <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-green-600 dark:border-green-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+            
+            <div className="space-y-2">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {t("common.loading")}
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400">
+                {t("auth.loadingHistory")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="max-lg:max-w-screen-md max-w-screen-lg mx-auto px-4">
         <Header />

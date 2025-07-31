@@ -14,6 +14,7 @@ export interface JwtValidationResult {
 export const useJwtAuth = () => {
   const authStore = useAuthStore();
   const [validationResult, setValidationResult] = useState<JwtValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
   /**
    * 静默验证JWT令牌
@@ -23,6 +24,7 @@ export const useJwtAuth = () => {
       return { valid: false, error: "No JWT token provided" };
     }
 
+    setIsValidating(true);
     try {
       const response = await dataCenterAPI.validateToken();
       
@@ -42,6 +44,8 @@ export const useJwtAuth = () => {
       setValidationResult(result);
       authStore.setAuthenticated(false);
       return result;
+    } finally {
+      setIsValidating(false);
     }
   }, [authStore]);
 
@@ -55,6 +59,7 @@ export const useJwtAuth = () => {
 
   return {
     validationResult,
+    isValidating,
     validateJwt,
     clearAuth,
   };

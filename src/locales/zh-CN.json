@@ -362,9 +362,12 @@
     "authenticationRequired": "需要身份认证",
     "jwtRequired": "访问此功能需要有效的身份认证",
     "jwtSet": "认证信息已设置",
-    "topicIdSet": "话题ID已设置"
+    "topicIdSet": "话题ID已设置",
+    "verifying": "权限验证中",
+    "verifyingPermissions": "正在验证您的访问权限，请稍候..."
   },
   "common": {
-    "ok": "确定"
+    "ok": "确定",
+    "loading": "加载中"
   }
 }

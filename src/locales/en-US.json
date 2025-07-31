@@ -373,6 +373,8 @@
     "authenticationFailed": "Authentication failed, please check access permissions",
     "authenticationRequired": "Authentication Required",
     "jwtRequired": "This application requires authentication to access data center features",
+    "verifying": "Verifying",
+    "verifyingPermissions": "Verifying your access permissions, please wait...",
     "jwtInvalid": "JWT token is invalid",
     "accessDenied": "Access denied",
     "reauthRequired": "Re-authentication required",
@@ -388,6 +390,7 @@
     "jwtNotValidatedDescription": "JWT token is set but not validated, click to verify and enable data center features",    "validateNow": "Validate now"
   },
   "common": {
-    "ok": "OK"
+    "ok": "OK",
+    "loading": "Loading"
   }
 }
