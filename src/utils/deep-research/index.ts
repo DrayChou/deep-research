@@ -883,7 +883,14 @@ class DeepResearch {
       environment: {
         nodeVersion: typeof process !== 'undefined' && process.version ? process.version : 'browser',
         platform: typeof process !== 'undefined' && process.platform ? process.platform : 'browser',
-        memoryUsage: typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : 'unavailable',
+        memoryUsage: (() => {
+          try {
+            return typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : 'unavailable';
+          } catch (error) {
+            // Edge Runtime 环境不支持 process.memoryUsage()
+            return 'edge-runtime-unavailable';
+          }
+        })(),
         timestamp: new Date().toISOString()
       }
     });

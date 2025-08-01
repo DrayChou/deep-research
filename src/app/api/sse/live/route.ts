@@ -9,7 +9,7 @@ import {
 } from "../../utils";
 import { logger } from "@/utils/logger";
 
-// 创建 SSE API 专用的日志实例
+// 创建SSE API专用的日志实例
 const sseLogger = logger.getInstance('SSE-Live');
 
 export const runtime = "edge";
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     searchParams: Object.fromEntries(req.nextUrl.searchParams.entries())
   });
   
-  // 可选 JWT 验证和配置获取
+  // 可选JWT验证和配置获取
   const authResult = await optionalJwtAuthMiddleware(req);
   if (!authResult.valid) {
     return NextResponse.json(
@@ -48,18 +48,18 @@ export async function GET(req: NextRequest) {
     return req.nextUrl.searchParams.get(key);
   }
 
-  // 从 URL 参数获取基础参数
+  // 从URL参数获取基础参数
   const query = getValueFromSearchParams("query") || "";
   const language = getValueFromSearchParams("language") || "zh-CN";
   const maxResult = Number(getValueFromSearchParams("maxResult")) || 50;
   const enableCitationImage = getValueFromSearchParams("enableCitationImage") !== "false";
   const enableReferences = getValueFromSearchParams("enableReferences") !== "false";
 
-  // 获取 AI 和搜索提供商配置，其中包含了 provider 信息
+  // 获取AI和搜索提供商配置，其中包含了provider信息
   const aiConfig = getAIProviderConfig(authResult.config || {}, req);
   const searchConfig = getSearchProviderConfig(authResult.config || {}, req);
   
-  // 额外的安全检查，确保 provider 不为空
+  // 额外的安全检查，确保provider不为空
   if (!aiConfig.provider || aiConfig.provider.trim() === '') {
     sseLogger.error('AI provider is empty, this should not happen');
     return NextResponse.json(
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   const config = authResult.config || {};
   const modelConfig = getProviderModelFields(aiConfig.provider, config);
   
-  // 允许 URL 参数覆盖配置
+  // 允许URL参数覆盖配置
   const thinkingModel = getValueFromSearchParams("thinkingModel") || modelConfig.thinkingModel || 'gpt-4o';
   const taskModel = getValueFromSearchParams("taskModel") || modelConfig.networkingModel || 'gpt-4o';
 
@@ -128,8 +128,8 @@ export async function GET(req: NextRequest) {
       });
 
       const processedApiKey = multiApiKeyPolling(aiConfig.apiKey);
-      // 不在这里预处理搜索 API key，将原始的多 key 字符串传递给 DeepResearch
-      // 让 DeepResearch 内部处理 key 的选择和轮换
+      // 不在这里预处理搜索API key，将原始的多key字符串传递给DeepResearch
+      // 让DeepResearch内部处理key的选择和轮换
       
       // 使用日志记录搜索配置状态
       sseLogger.debug('Search configuration processed', {
@@ -224,7 +224,7 @@ export async function GET(req: NextRequest) {
       "X-Accel-Buffering": "no",
       "Access-Control-Allow-Origin": "*",
 
-      // 响应标题里输出当前使用的模型名称和请求 ID
+      // 响应标题里输出当前使用的模型名称和请求ID
       "X-Model-Name": `${aiConfig.provider} (${thinkingModel}, ${taskModel})`,
       "X-Search-Provider": searchConfig.searchProvider || "Not configured",
       "X-Request-ID": requestId,

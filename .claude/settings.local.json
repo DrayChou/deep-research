@@ -29,9 +29,7 @@
       "Bash(npm run build:*)",
       "Bash(npx eslint:*)",
       "Bash(cp:*)",
-      "Bash(npx next lint:*)",
-      "Bash(npx next build:*)",
-      "WebFetch(domain:github.com)"
+      "Bash(npx next lint:*)"
     ],
     "deny": []
   }
