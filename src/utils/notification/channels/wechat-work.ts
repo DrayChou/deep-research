@@ -1,7 +1,7 @@
 /**
  * 企业微信通知渠道
  */
-import { NotificationChannel, NotificationMessage, NotificationResult } from '../types';
+import { NotificationChannel, NotificationMessage } from '../types';
 
 export class WeChatWorkChannel implements NotificationChannel {
   name = 'wechat-work';

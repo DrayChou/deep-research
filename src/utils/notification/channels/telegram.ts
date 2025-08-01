@@ -32,7 +32,7 @@ export class TelegramChannel implements NotificationChannel {
       return false;
     }
 
-    const { text, options } = this.formatMessage(message);
+    const { text } = this.formatMessage(message);
     const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
     
     for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {

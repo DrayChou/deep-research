@@ -143,7 +143,7 @@ export const notificationConfig: NotificationConfig = {
 // 日志配置状态（仅在开发模式下）
 if (getEnvVar('NODE_ENV') === 'development') {
   const enabledChannels = Object.entries(notificationConfig.channels)
-    .filter(([_, config]) => config?.enabled)
+    .filter(([, config]) => config?.enabled)
     .map(([name]) => name);
     
   console.log('[NotificationConfig] Loaded configuration:', {

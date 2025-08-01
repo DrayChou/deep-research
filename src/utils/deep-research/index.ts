@@ -886,7 +886,7 @@ class DeepResearch {
         memoryUsage: (() => {
           try {
             return typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : 'unavailable';
-          } catch (error) {
+          } catch {
             // Edge Runtime 环境不支持 process.memoryUsage()
             return 'edge-runtime-unavailable';
           }
@@ -905,7 +905,7 @@ class DeepResearch {
       
       // 根据重试次数调整prompt（移到try块外，确保catch块中可以访问）
       let enhancedPrompt = finalPrompt;
-      let promptEnhancements: string[] = [];
+      const promptEnhancements: string[] = [];
       
       if (attempt > 1) {
         const enhancement = '\n\nIMPORTANT: Please provide a comprehensive report with at least 1000 characters. Do not return empty content.';
