@@ -903,6 +903,21 @@ class DeepResearch {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
       
+      // 根据重试次数调整prompt（移到try块外，确保catch块中可以访问）
+      let enhancedPrompt = finalPrompt;
+      let promptEnhancements: string[] = [];
+      
+      if (attempt > 1) {
+        const enhancement = '\n\nIMPORTANT: Please provide a comprehensive report with at least 1000 characters. Do not return empty content.';
+        enhancedPrompt += enhancement;
+        promptEnhancements.push('Added minimum length requirement');
+      }
+      if (attempt > 2) {
+        const enhancement = '\n\nCRITICAL: You MUST generate substantial content. This is the final attempt - failure to provide content will result in an error.';
+        enhancedPrompt += enhancement;
+        promptEnhancements.push('Added critical failure warning');
+      }
+      
       try {
         // 记录详细的重试开始信息
         this.logger.info(`Final report generation attempt ${attempt}/${maxRetries}`, {
@@ -943,21 +958,6 @@ class DeepResearch {
         });
         
         const model = await this.getThinkingModel();
-        
-        // 根据重试次数调整prompt
-        let enhancedPrompt = finalPrompt;
-        let promptEnhancements: string[] = [];
-        
-        if (attempt > 1) {
-          const enhancement = '\n\nIMPORTANT: Please provide a comprehensive report with at least 1000 characters. Do not return empty content.';
-          enhancedPrompt += enhancement;
-          promptEnhancements.push('Added minimum length requirement');
-        }
-        if (attempt > 2) {
-          const enhancement = '\n\nCRITICAL: You MUST generate substantial content. This is the final attempt - failure to provide content will result in an error.';
-          enhancedPrompt += enhancement;
-          promptEnhancements.push('Added critical failure warning');
-        }
         
         // 记录prompt增强信息
         if (promptEnhancements.length > 0) {
