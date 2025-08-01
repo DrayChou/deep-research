@@ -16,6 +16,8 @@ import { isNetworkingModel } from "@/utils/model";
 import { ThinkTagStreamProcessor, removeJsonMarkdown } from "@/utils/text";
 import { pick, unique, flat, isFunction } from "radash";
 import { Logger, logger } from "@/utils/logger";
+import { NotificationService } from "@/utils/notification";
+import { notificationConfig } from "@/utils/notification/config";
 
 // 类型定义
 type Source = {
@@ -95,18 +97,24 @@ class DeepResearch {
   protected options: DeepResearchOptions;
   onMessage: (event: string, data: any) => void = () => { };
   private logger: Logger;
+  private notificationService: NotificationService;
+  
   constructor(options: DeepResearchOptions) {
     this.options = options;
     this.logger = logger.getInstance('DeepResearch');
+    this.notificationService = new NotificationService(notificationConfig);
+    
     if (isFunction(options.onMessage)) {
       this.onMessage = options.onMessage;
     }
+    
     this.logger.info('DeepResearch initialized', {
       aiProvider: options.AIProvider.provider,
       thinkingModel: options.AIProvider.thinkingModel,
       taskModel: options.AIProvider.taskModel,
       searchProvider: options.searchProvider.provider,
-      language: options.language
+      language: options.language,
+      notificationEnabled: notificationConfig.enabled
     });
   }
 
@@ -238,6 +246,21 @@ class DeepResearch {
         systemPromptLength: getSystemPrompt().length,
         userPromptLength: userPrompt.length
       });
+      
+      // 检测API欠费错误并发送通知（异步非阻塞）
+      if (error instanceof Error) {
+        this.handleApiCreditError(error, {
+          provider: this.options.AIProvider.provider,
+          model: this.options.AIProvider.thinkingModel,
+          operation: 'writeReportPlan',
+          additionalInfo: {
+            queryLength: query.length,
+            systemPromptLength: getSystemPrompt().length,
+            userPromptLength: userPrompt.length
+          }
+        });
+      }
+      
       throw error;
     }
   }
@@ -395,6 +418,20 @@ class DeepResearch {
             reportPlanLength: reportPlan.length,
             totalAttempts: maxRetries
           });
+          
+          // 检测API欠费错误并发送通知（异步非阻塞）
+          if (error instanceof Error) {
+            this.handleApiCreditError(error, {
+              provider: this.options.AIProvider.provider,
+              model: this.options.AIProvider.thinkingModel,
+              operation: 'generateSERPQuery',
+              additionalInfo: {
+                reportPlanLength: reportPlan.length,
+                totalAttempts: maxRetries
+              }
+            });
+          }
+          
           throw new Error(`Failed to parse SERP query JSON after ${maxRetries} attempts. AI response was not in valid JSON format.`);
         }
 
@@ -403,7 +440,7 @@ class DeepResearch {
       }
     }
     
-    // 理论上不应该到达这里，但作为类型安全的fallback
+    // 理论上不应该到达这里，但作为类型安全的 fallback
     throw new Error('Unexpected error in generateSERPQuery retry logic');
   }
 
@@ -620,19 +657,46 @@ class DeepResearch {
           throw new Error(errorMessage);
         }
         
-        searchResult = streamText({
-          model: await this.getTaskModel(),
-          system: getSystemPrompt(),
-          prompt: [
-            processSearchResultPrompt(
-              item.query,
-              item.researchGoal,
-              sources,
-              sources.length > 0 && enableReferences
-            ),
-            this.getResponseLanguagePrompt(),
-          ].join("\n\n"),
-        });
+        try {
+          searchResult = streamText({
+            model: await this.getTaskModel(),
+            system: getSystemPrompt(),
+            prompt: [
+              processSearchResultPrompt(
+                item.query,
+                item.researchGoal,
+                sources,
+                sources.length > 0 && enableReferences
+              ),
+              this.getResponseLanguagePrompt(),
+            ].join("\n\n"),
+          });
+        } catch (error) {
+          this.logger.error('Search task AI processing failed', error instanceof Error ? error : undefined, {
+            query: item.query,
+            researchGoal: item.researchGoal,
+            sourcesCount: sources.length,
+            model: this.options.AIProvider.taskModel
+          });
+          
+          // 检测API欠费错误并发送通知（异步非阻塞）
+          if (error instanceof Error) {
+            this.handleApiCreditError(error, {
+              provider: this.options.AIProvider.provider,
+              model: this.options.AIProvider.taskModel,
+              operation: 'runSearchTask',
+              additionalInfo: {
+                query: item.query.substring(0, 100),
+                researchGoal: item.researchGoal.substring(0, 100),
+                sourcesCount: sources.length,
+                imagesCount: images.length,
+                enableReferences
+              }
+            });
+          }
+          
+          throw error;
+        }
       }
 
       this.onMessage("message", { type: "text", text: "<search-task>\n" });
@@ -641,7 +705,9 @@ class DeepResearch {
         type: "text",
         text: `${addQuoteBeforeAllLine(item.researchGoal)}\n\n`,
       });
-      for await (const part of searchResult.fullStream) {
+      
+      try {
+        for await (const part of searchResult.fullStream) {
         if (part.type === "text-delta") {
           thinkTagStreamProcessor.processChunk(
             part.textDelta,
@@ -682,6 +748,33 @@ class DeepResearch {
             content = content.replaceAll("【", "[").replaceAll("】", "]");
           }
         }
+        }
+      } catch (streamError) {
+        this.logger.error('Search task stream processing failed', streamError instanceof Error ? streamError : undefined, {
+          query: item.query,
+          researchGoal: item.researchGoal,
+          sourcesCount: sources.length,
+          contentLength: content.length,
+          model: this.options.AIProvider.taskModel
+        });
+        
+        // 检测API欠费错误并发送通知（异步非阻塞）
+        if (streamError instanceof Error) {
+          this.handleApiCreditError(streamError, {
+            provider: this.options.AIProvider.provider,
+            model: this.options.AIProvider.taskModel,
+            operation: 'runSearchTask_stream',
+            additionalInfo: {
+              query: item.query.substring(0, 100),
+              researchGoal: item.researchGoal.substring(0, 100),
+              sourcesCount: sources.length,
+              contentLength: content.length,
+              streamProcessing: true
+            }
+          });
+        }
+        
+        throw streamError;
       }
       thinkTagStreamProcessor.end();
 
@@ -745,7 +838,6 @@ class DeepResearch {
       enableReferences
     });
     this.onMessage("progress", { step: "final-report", status: "start" });
-    const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
 
     const learnings = tasks.map((item) => item.learning);
     const sources: Source[] = unique(
@@ -766,7 +858,7 @@ class DeepResearch {
       imagesCount: images.length,
       averageLearningLength: learnings.reduce((sum, learning) => sum + learning.length, 0) / learnings.length
     });
-    const startTime = Date.now();
+
     const systemPrompt = [getSystemPrompt(), outputGuidelinesPrompt].join("\n\n");
     const finalPrompt = [
       writeFinalReportPrompt(
@@ -787,145 +879,498 @@ class DeepResearch {
       finalPromptPreview: finalPrompt.substring(0, 500),
       learningsCount: learnings.length,
       sourcesCount: sources.length,
-      imagesCount: images.length
+      imagesCount: images.length,
+      environment: {
+        nodeVersion: typeof process !== 'undefined' && process.version ? process.version : 'browser',
+        platform: typeof process !== 'undefined' && process.platform ? process.platform : 'browser',
+        memoryUsage: typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : 'unavailable',
+        timestamp: new Date().toISOString()
+      }
     });
 
-    try {
-      const model = await this.getThinkingModel();
-      const result = streamText({
-        model,
-        system: systemPrompt,
-        prompt: finalPrompt,
-      });
-      let content = "";
-      let reasoningContent = "";
-      let sourceCount = 0;
-
-      this.onMessage("message", { type: "text", text: "<final-report>\n" });
-
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          thinkTagStreamProcessor.processChunk(
-            part.textDelta,
-            (data) => {
-              content += data;
-              this.onMessage("message", { type: "text", text: data });
-            },
-            (data) => {
-              reasoningContent += data;
-              this.onMessage("reasoning", { type: "text", text: data });
-            }
-          );
-        } else if (part.type === "reasoning") {
-          reasoningContent += part.textDelta;
-          this.onMessage("reasoning", { type: "text", text: part.textDelta });
-        } else if (part.type === "source") {
-          sources.push(part.source);
-          sourceCount++;
-        } else if (part.type === "finish") {
-          // 只有在启用references且报告中没有使用行内链接时，才添加传统引用列表
-          // 检查内容中是否已经包含markdown链接格式（精确的正则表达式）
-          const hasInlineLinks = /\[([^\]]+)\]\(https?:\/\/[^\)]+\)/.test(content);
-          
-          if (sources.length > 0 && enableReferences && !hasInlineLinks) {
-            this.logger.debug('Adding fallback reference list', {
-              sourcesCount: sources.length,
-              hasInlineLinks,
-              contentPreview: content.substring(0, 200)
-            });
-            
-            const sourceContent =
-              "\n\n---\n\n## References\n\n" +
-              sources
-                .map(
-                  (item, idx) =>
-                    `${idx + 1}. [${item.title || 'Source'}](${item.url})`
-                )
-                .join("\n");
-            content += sourceContent;
-          } else if (hasInlineLinks) {
-            this.logger.debug('Inline links detected, skipping reference list', {
-              sourcesCount: sources.length,
-              inlineLinkCount: (content.match(/\[([^\]]+)\]\(https?:\/\/[^\)]+\)/g) || []).length
-            });
+    // 重试机制：最多重试 3 次
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    const overallStartTime = Date.now();
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const startTime = Date.now();
+      
+      try {
+        // 记录详细的重试开始信息
+        this.logger.info(`Final report generation attempt ${attempt}/${maxRetries}`, {
+          attempt,
+          remainingAttempts: maxRetries - attempt,
+          inputData: {
+            reportPlanLength: reportPlan.length,
+            learningsCount: learnings.length,
+            totalLearningsLength: learnings.reduce((sum, learning) => sum + learning.length, 0),
+            sourcesCount: sources.length,
+            imagesCount: images.length,
+            enableCitationImage,
+            enableReferences
+          },
+          promptData: {
+            systemPromptLength: systemPrompt.length,
+            originalPromptLength: finalPrompt.length
+          },
+          modelConfig: {
+            provider: this.options.AIProvider.provider,
+            model: this.options.AIProvider.thinkingModel,
+            baseURL: this.options.AIProvider.baseURL ? this.options.AIProvider.baseURL.substring(0, 50) + '...' : undefined,
+            apiKeyPrefix: this.options.AIProvider.apiKey ? this.options.AIProvider.apiKey.substring(0, 8) + '...' : 'Not configured',
+            apiKeySuffix: this.options.AIProvider.apiKey && this.options.AIProvider.apiKey.length > 8 ? '...' + this.options.AIProvider.apiKey.slice(-4) : undefined
           }
+        }, true);
 
-          // 记录完成状态
-          this.logger.debug('Final report generation finished', {
-            providerMetadata: part.providerMetadata,
-            usage: part.usage,
-            finishReason: part.finishReason
+        const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
+        
+        // 记录模型创建过程
+        this.logger.debug(`Creating thinking model for attempt ${attempt}`, {
+          modelConfig: {
+            provider: this.options.AIProvider.provider,
+            model: this.options.AIProvider.thinkingModel,
+            baseURL: this.options.AIProvider.baseURL
+          },
+          attempt
+        });
+        
+        const model = await this.getThinkingModel();
+        
+        // 根据重试次数调整prompt
+        let enhancedPrompt = finalPrompt;
+        let promptEnhancements: string[] = [];
+        
+        if (attempt > 1) {
+          const enhancement = '\n\nIMPORTANT: Please provide a comprehensive report with at least 1000 characters. Do not return empty content.';
+          enhancedPrompt += enhancement;
+          promptEnhancements.push('Added minimum length requirement');
+        }
+        if (attempt > 2) {
+          const enhancement = '\n\nCRITICAL: You MUST generate substantial content. This is the final attempt - failure to provide content will result in an error.';
+          enhancedPrompt += enhancement;
+          promptEnhancements.push('Added critical failure warning');
+        }
+        
+        // 记录prompt增强信息
+        if (promptEnhancements.length > 0) {
+          this.logger.debug(`Prompt enhanced for attempt ${attempt}`, {
+            enhancements: promptEnhancements,
+            originalLength: finalPrompt.length,
+            enhancedLength: enhancedPrompt.length,
+            addedLength: enhancedPrompt.length - finalPrompt.length
           });
         }
-      }
-      this.onMessage("message", { type: "text", text: "\n</final-report>\n\n" });
-      thinkTagStreamProcessor.end();
+        
+        // 记录AI请求的详细参数
+        this.logger.debug(`AI request details for attempt ${attempt}`, {
+          request: {
+            model: this.options.AIProvider.thinkingModel,
+            systemPromptLength: systemPrompt.length,
+            promptLength: enhancedPrompt.length,
+            systemPromptPreview: systemPrompt.substring(0, 200) + '...',
+            promptPreview: enhancedPrompt.substring(0, 300) + '...',
+            promptSuffix: enhancedPrompt.slice(-200) // 显示prompt结尾，包含重试增强内容
+          },
+          timing: {
+            requestStartTime: new Date().toISOString(),
+            attemptNumber: attempt
+          }
+        }, true);
 
-      const duration = Date.now() - startTime;
+        const result = streamText({
+          model,
+          system: systemPrompt,
+          prompt: enhancedPrompt,
+        });
+        
+        let content = "";
+        let reasoningContent = "";
+        let sourceCount = 0;
+        let streamChunks = 0;
+        let firstChunkTime: number | null = null;
 
-      // 记录LLM调用详情
-      this.logger.logLLMCall('writeFinalReport',
-        {
-          model: this.options.AIProvider.thinkingModel,
-          enableCitationImage,
-          enableReferences
-        },
-        {
-          promptLength: finalPrompt.length,
-          learningsCount: learnings.length,
-          sourcesCount: sources.length,
-          imagesCount: images.length
-        },
-        {
+        this.onMessage("message", { type: "text", text: "<final-report>\n" });
+
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            streamChunks++;
+            if (firstChunkTime === null) {
+              firstChunkTime = Date.now();
+              this.logger.debug(`First stream chunk received for attempt ${attempt}`, {
+                timeToFirstChunk: firstChunkTime - startTime,
+                chunkLength: part.textDelta.length,
+                chunkPreview: part.textDelta.substring(0, 100)
+              });
+            }
+            
+            thinkTagStreamProcessor.processChunk(
+              part.textDelta,
+              (data) => {
+                content += data;
+                this.onMessage("message", { type: "text", text: data });
+              },
+              (data) => {
+                reasoningContent += data;
+                this.onMessage("reasoning", { type: "text", text: data });
+              }
+            );
+          } else if (part.type === "reasoning") {
+            reasoningContent += part.textDelta;
+            this.onMessage("reasoning", { type: "text", text: part.textDelta });
+          } else if (part.type === "source") {
+            sources.push(part.source);
+            sourceCount++;
+          } else if (part.type === "finish") {
+            // 只有在启用 references 且报告中没有使用行内链接时，才添加传统引用列表
+            // 检查内容中是否已经包含 markdown 链接格式（精确的正则表达式）
+            const hasInlineLinks = /\[([^\]]+)\]\(https?:\/\/[^\)]+\)/.test(content);
+            
+            if (sources.length > 0 && enableReferences && !hasInlineLinks) {
+              this.logger.debug('Adding fallback reference list', {
+                sourcesCount: sources.length,
+                hasInlineLinks,
+                contentPreview: content.substring(0, 200)
+              });
+              
+              const sourceContent =
+                "\n\n---\n\n## References\n\n" +
+                sources
+                  .map(
+                    (item, idx) =>
+                      `${idx + 1}. [${item.title || 'Source'}](${item.url})`
+                  )
+                  .join("\n");
+              content += sourceContent;
+            } else if (hasInlineLinks) {
+              this.logger.debug('Inline links detected, skipping reference list', {
+                sourcesCount: sources.length,
+                inlineLinkCount: (content.match(/\[([^\]]+)\]\(https?:\/\/[^\)]+\)/g) || []).length
+              });
+            }
+
+            // 记录AI响应的详细完成状态
+            this.logger.debug(`AI response completed for attempt ${attempt}`, {
+              response: {
+                finishReason: part.finishReason,
+                providerMetadata: part.providerMetadata,
+                usage: part.usage
+              },
+              streaming: {
+                totalChunks: streamChunks,
+                timeToFirstChunk: firstChunkTime ? firstChunkTime - startTime : null,
+                totalStreamTime: Date.now() - startTime
+              },
+              content: {
+                contentLength: content.length,
+                reasoningLength: reasoningContent.length,
+                sourceCount: sourceCount,
+                hasInlineLinks,
+                contentPreview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+                contentSuffix: content.length > 200 ? '...' + content.slice(-100) : ''
+              },
+              attempt
+            }, true);
+          }
+        }
+        
+        this.onMessage("message", { type: "text", text: "\n</final-report>\n\n" });
+        thinkTagStreamProcessor.end();
+
+        const duration = Date.now() - startTime;
+
+        // 记录 LLM 调用详情
+        this.logger.logLLMCall('writeFinalReport',
+          {
+            model: this.options.AIProvider.thinkingModel,
+            enableCitationImage,
+            enableReferences,
+            attempt
+          },
+          {
+            promptLength: enhancedPrompt.length,
+            learningsCount: learnings.length,
+            sourcesCount: sources.length,
+            imagesCount: images.length
+          },
+          {
+            contentLength: content.length,
+            reasoningLength: reasoningContent.length,
+            sourceCount: sourceCount
+          },
+          duration
+        );
+
+        // 检查内容是否为空或过短
+        if (!content || content.trim().length < 100) {
+          const errorMsg = `Final report content is too short (${content.length} chars) on attempt ${attempt}/${maxRetries}`;
+          this.logger.warn(errorMsg, {
+            contentAnalysis: {
+              rawLength: content.length,
+              trimmedLength: content.trim().length,
+              contentPreview: content.substring(0, 200),
+              contentSuffix: content.length > 200 ? content.slice(-100) : content,
+              isEmpty: content.length === 0,
+              isOnlyWhitespace: content.length > 0 && content.trim().length === 0
+            },
+            responseAnalysis: {
+              streamChunks: streamChunks,
+              timeToFirstChunk: firstChunkTime ? firstChunkTime - startTime : null,
+              totalStreamTime: Date.now() - startTime,
+              reasoningLength: reasoningContent.length,
+              sourceCount: sourceCount
+            },
+            retryInfo: {
+              attempt,
+              maxRetries,
+              willRetry: attempt < maxRetries
+            }
+          }, true);
+          
+          if (attempt === maxRetries) {
+            throw new Error(`Failed to generate adequate content after ${maxRetries} attempts. Last content length: ${content.length} chars`);
+          }
+          continue; // 重试
+        }
+
+        const title = content
+          .split("\n")[0]
+          .replaceAll("#", "")
+          .replaceAll("*", "")
+          .trim();
+
+        const finalReportResult: FinalReportResult = {
+          title,
+          finalReport: content,
+          learnings,
+          sources,
+          images,
+        };
+
+        // 验证报告质量
+        const qualityCheck = this.validateReportQuality(finalReportResult);
+        
+        // 使用完整日志输出质量检查结果
+        this.logger.info('Final report quality check', qualityCheck, true);
+        
+        if (!qualityCheck.isValid && attempt < maxRetries) {
+          this.logger.warn(`Quality check failed on attempt ${attempt}/${maxRetries}, retrying`, {
+            qualityIssues: qualityCheck.issues,
+            qualityMetrics: qualityCheck.metrics,
+            retryDecision: {
+              attempt,
+              maxRetries,
+              willRetry: true,
+              reasonForRetry: 'Quality check failed'
+            },
+            contentAnalysis: {
+              generatedLength: content.length,
+              expectedMinimum: 500,
+              actualTitle: title,
+              titleLength: title.length,
+              hasMarkdownStructure: /#{1,6}\s/.test(content),
+              estimatedReadingTime: Math.ceil(content.split(/\s+/).length / 200) // 200 words per minute
+            }
+          }, true);
+          continue; // 重试
+        }
+
+        this.logger.logStep('writeFinalReport', 'end', {
           contentLength: content.length,
-          reasoningLength: reasoningContent.length,
-          sourceCount: sourceCount
-        },
-        duration
-      );
+          title,
+          duration,
+          qualityCheck,
+          hasReasoning: reasoningContent.length > 0,
+          totalAttempts: attempt,
+          success: true
+        });
 
-      const title = content
-        .split("\n")[0]
-        .replaceAll("#", "")
-        .replaceAll("*", "")
-        .trim();
-
-      const finalReportResult: FinalReportResult = {
-        title,
-        finalReport: content,
-        learnings,
-        sources,
-        images,
-      };
-
-      // 验证报告质量
-      const qualityCheck = this.validateReportQuality(finalReportResult);
-      this.logger.logStep('writeFinalReport', 'end', {
-        contentLength: content.length,
-        title,
-        duration,
-        qualityCheck,
-        hasReasoning: reasoningContent.length > 0
-      });
-
-      this.onMessage("progress", {
-        step: "final-report",
-        status: "end",
-        data: finalReportResult,
-      });
-      return finalReportResult;
-    } catch (error) {
-      this.logger.error('Failed to write final report', error instanceof Error ? error : undefined, {
-        reportPlanLength: reportPlan.length,
-        taskCount: tasks.length,
-        systemPromptLength: systemPrompt.length,
-        finalPromptLength: finalPrompt.length
-      });
-      throw error;
+        this.onMessage("progress", {
+          step: "final-report",
+          status: "end",
+          data: finalReportResult,
+        });
+        
+        return finalReportResult;
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(`Unknown error on attempt ${attempt}`);
+        
+        // 检查是否为网络或API相关的错误
+        const isNetworkError = lastError.message.toLowerCase().includes('network') || 
+                               lastError.message.toLowerCase().includes('timeout') ||
+                               lastError.message.toLowerCase().includes('connection') ||
+                               lastError.message.toLowerCase().includes('fetch');
+        
+        const isAPIError = lastError.message.toLowerCase().includes('api') ||
+                          lastError.message.toLowerCase().includes('unauthorized') ||
+                          lastError.message.toLowerCase().includes('forbidden') ||
+                          lastError.message.toLowerCase().includes('rate limit');
+        
+        this.logger.warn(`Final report generation failed on attempt ${attempt}/${maxRetries}`, {
+          error: {
+            message: lastError.message,
+            stack: lastError.stack,
+            name: lastError.name,
+            type: isNetworkError ? 'network' : isAPIError ? 'api' : 'unknown',
+            isNetworkError,
+            isAPIError
+          },
+          requestDetails: {
+            modelUsed: this.options.AIProvider.thinkingModel,
+            promptLength: enhancedPrompt.length,
+            systemPromptLength: systemPrompt.length,
+            attempt,
+            timeSinceStart: Date.now() - startTime
+          },
+          retryInfo: {
+            willRetry: attempt < maxRetries,
+            remainingAttempts: maxRetries - attempt,
+            nextRetryDelay: attempt < maxRetries ? 1000 * attempt : 0
+          },
+          context: {
+            inputDataSize: {
+              reportPlanLength: reportPlan.length,
+              learningsCount: learnings.length,
+              sourcesCount: sources.length
+            }
+          }
+        }, true);
+        
+        // 检测API欠费错误并发送通知（异步非阻塞）
+        if (lastError instanceof Error) {
+          this.handleApiCreditError(lastError, {
+            provider: this.options.AIProvider.provider,
+            model: this.options.AIProvider.thinkingModel,
+            operation: 'writeFinalReport',
+            additionalInfo: {
+              attempt,
+              maxRetries,
+              reportPlanLength: reportPlan.length,
+              tasksCount: tasks.length,
+              promptLength: enhancedPrompt.length,
+              timeSinceStart: Date.now() - startTime
+            }
+          });
+        }
+        
+        if (attempt === maxRetries) {
+          break; // 最后一次尝试失败，退出循环
+        }
+        
+        // 延迟后重试
+        const retryDelay = 1000 * attempt;
+        this.logger.debug(`Retrying after ${retryDelay}ms delay`, { attempt, nextAttempt: attempt + 1 });
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
     }
+
+    // 所有重试均失败
+    const finalError = new Error(`Failed to generate final report after ${maxRetries} attempts. ${lastError?.message || 'Unknown error'}`);
+    
+    this.logger.error('All final report generation attempts failed', finalError, {
+      reportPlanLength: reportPlan.length,
+      taskCount: tasks.length,
+      systemPromptLength: systemPrompt.length,
+      finalPromptLength: finalPrompt.length,
+      totalAttempts: maxRetries,
+      lastError: lastError?.message,
+      failureSummary: {
+        allAttemptsFailed: true,
+        totalRetryTime: Date.now() - overallStartTime,
+        possibleCauses: [
+          finalPrompt.length > 50000 ? 'Prompt too long (>50k chars)' : null,
+          !this.options.AIProvider.apiKey ? 'Missing API key' : null,
+          lastError?.message.toLowerCase().includes('rate limit') ? 'Rate limiting' : null,
+          lastError?.message.toLowerCase().includes('network') ? 'Network issues' : null
+        ].filter(Boolean),
+        recommendedActions: [
+          'Check API key configuration',
+          'Verify network connectivity',
+          'Try reducing input content length',
+          'Check API provider status',
+          'Consider using different model'
+        ]
+      }
+    }, true);
+
+    // 检测最终错误是否为API欠费问题并发送通知（异步非阻塞）
+    if (lastError instanceof Error) {
+      this.handleApiCreditError(lastError, {
+        provider: this.options.AIProvider.provider,
+        model: this.options.AIProvider.thinkingModel,
+        operation: 'writeFinalReport',
+        additionalInfo: {
+          finalFailure: true,
+          totalAttempts: maxRetries,
+          reportPlanLength: reportPlan.length,
+          tasksCount: tasks.length,
+          totalRetryTime: Date.now() - overallStartTime,
+          possibleCauses: [
+            finalPrompt.length > 50000 ? 'Prompt too long (>50k chars)' : null,
+            !this.options.AIProvider.apiKey ? 'Missing API key' : null,
+            lastError?.message.toLowerCase().includes('rate limit') ? 'Rate limiting' : null,
+            lastError?.message.toLowerCase().includes('network') ? 'Network issues' : null
+          ].filter(Boolean)
+        }
+      });
+    }
+
+    // 返回一个包含错误信息的报告，而不是抛出异常
+    const errorReportResult: FinalReportResult = {
+      title: "Error: Failed to Generate Report",
+      finalReport: `# Final Report Generation Failed
+
+## Error Details
+- **Error Message**: ${lastError?.message || 'Unknown error'}
+- **Total Attempts**: ${maxRetries}
+- **Input Data**: ${tasks.length} research tasks processed
+- **Prompt Length**: ${finalPrompt.length} characters
+
+## Debugging Information
+- Report Plan Length: ${reportPlan.length} characters
+- Total Learning Content: ${learnings.reduce((sum, learning) => sum + learning.length, 0)} characters
+- Sources Available: ${sources.length}
+- Images Available: ${images.length}
+
+## Possible Causes
+1. Prompt too long (${finalPrompt.length} chars) - consider reducing input content
+2. AI model content filtering blocking output
+3. Network or API service issues
+4. Model overload or rate limiting
+
+## Next Steps
+1. Check API provider status and rate limits
+2. Try reducing the amount of learning content
+3. Verify API keys and model availability
+4. Consider using a different AI model
+
+*This error report was generated automatically after ${maxRetries} failed attempts.*`,
+      learnings,
+      sources,
+      images,
+    };
+
+    this.logger.logStep('writeFinalReport', 'end', {
+      contentLength: errorReportResult.finalReport.length,
+      title: errorReportResult.title,
+      duration: 0,
+      qualityCheck: { isValid: false, issues: ['Generated error report due to failures'] },
+      hasReasoning: false,
+      totalAttempts: maxRetries,
+      success: false
+    });
+
+    this.onMessage("progress", {
+      step: "final-report",
+      status: "end",
+      data: errorReportResult,
+    });
+
+    return errorReportResult;
   }
 
-  // 合并和去重API keys
+  // 合并和去重 API keys
   private mergeAndDeduplicateKeys(configKeys: string, envKeys: string): string {
     const allKeys: string[] = [];
     
@@ -943,6 +1388,42 @@ class DeepResearch {
     const uniqueKeys = [...new Set(allKeys)];
     
     return uniqueKeys.join(',');
+  }
+
+  // 检测API欠费错误并发送通知（异步非阻塞）
+  private handleApiCreditError(error: Error, context: {
+    provider: string;
+    model: string;
+    operation: string;
+    additionalInfo?: Record<string, any>;
+  }): void {
+    if (!NotificationService.isApiCreditError(error.message)) {
+      return; // 不是欠费错误，直接返回
+    }
+
+    // 异步非阻塞发送通知，不会影响主进程
+    this.logger.warn('API欠费错误检测到，正在后台发送通知', {
+      provider: context.provider,
+      model: context.model,
+      operation: context.operation,
+      errorMessage: error.message
+    });
+
+    this.notificationService.sendApiCreditAlertAsync(
+      `${context.provider} (${context.model})`,
+      error.message,
+      {
+        operation: context.operation,
+        timestamp: new Date().toISOString(),
+        apiProvider: context.provider,
+        model: context.model,
+        baseURL: this.options.AIProvider.baseURL,
+        ...context.additionalInfo
+      }
+    );
+
+    // 注意：由于是异步非阻塞，这里不再等待结果或记录成功日志
+    // 成功或失败的日志会在 NotificationService 内部处理
   }
 
   // 验证报告质量的辅助方法
@@ -975,7 +1456,7 @@ class DeepResearch {
       issues.push('Report contains numbered references like [1], [32], [34] instead of proper markdown links [Source Title](URL)');
     }
 
-    return {
+    const qualityResult = {
       isValid: issues.length === 0,
       issues,
       metrics: {
@@ -985,9 +1466,36 @@ class DeepResearch {
         sourcesCount: report.sources.length,
         imagesCount: report.images.length,
         hasProperMarkdownLinks: hasProperLinks,
-        hasNumberReferences: hasNumberReferences
+        hasNumberReferences: hasNumberReferences,
+        wordCount: report.finalReport.split(/\s+/).length,
+        paragraphCount: report.finalReport.split(/\n\s*\n/).length,
+        headingCount: (report.finalReport.match(/#{1,6}\s/g) || []).length
       }
     };
+
+    // 记录详细的质量检查日志
+    this.logger.debug('Report quality analysis completed', {
+      overallValid: qualityResult.isValid,
+      totalIssues: issues.length,
+      issueDetails: issues,
+      contentAnalysis: {
+        totalLength: qualityResult.metrics.contentLength,
+        wordCount: qualityResult.metrics.wordCount,
+        paragraphCount: qualityResult.metrics.paragraphCount,
+        headingCount: qualityResult.metrics.headingCount,
+        hasMarkdownStructure,
+        hasProperLinks,
+        hasNumberReferences
+      },
+      dataAnalysis: {
+        learningsIncluded: qualityResult.metrics.learningsCount,
+        sourcesAvailable: qualityResult.metrics.sourcesCount,
+        imagesAvailable: qualityResult.metrics.imagesCount,
+        titleLength: qualityResult.metrics.titleLength
+      }
+    }, true);
+
+    return qualityResult;
   }
 
   async start(
@@ -1037,6 +1545,22 @@ class DeepResearch {
         message: errorMessage,
         details: errorDetails
       });
+
+      // 检测API欠费错误并发送通知（异步非阻塞）
+      if (err instanceof Error) {
+        this.handleApiCreditError(err, {
+          provider: this.options.AIProvider.provider,
+          model: `${this.options.AIProvider.thinkingModel}/${this.options.AIProvider.taskModel}`,
+          operation: 'deepResearch',
+          additionalInfo: {
+            query: query.substring(0, 200),
+            duration: Date.now() - startTime,
+            enableCitationImage,
+            enableReferences,
+            stage: 'overall_failure'
+          }
+        });
+      }
 
       // 重新抛出错误，包含原始错误信息
       const enhancedError = new Error(errorMessage);

@@ -69,11 +69,22 @@ class Logger {
     return levels[level] >= levels[this.logLevel];
   }
 
-  formatMessage(level: string, message: string, data?: any): string {
+  formatMessage(level: string, message: string, data?: any, allowFullData: boolean = false): string {
     const timestamp = new Date().toISOString();
     const contextPrefix = this.context ? `[${this.context}]` : '';
     const envPrefix = isBrowser ? '[Browser]' : '[Node]';
-    const dataStr = data ? ` | Data: ${JSON.stringify(data).substring(0, 200)}` : '';
+    
+    let dataStr = '';
+    if (data) {
+      const jsonStr = JSON.stringify(data);
+      // 对于重要的日志（如错误、质量检查失败），允许输出完整数据
+      if (allowFullData || level === 'ERROR') {
+        dataStr = ` | Data: ${jsonStr}`;
+      } else {
+        dataStr = ` | Data: ${jsonStr.substring(0, 500)}${jsonStr.length > 500 ? '... (truncated)' : ''}`;
+      }
+    }
+    
     return `${timestamp} [${level}]${envPrefix}${contextPrefix} ${message}${dataStr}`;
   }
 
@@ -119,10 +130,10 @@ class Logger {
     }
   }
 
-  debug(message: string, data?: any): void {
+  debug(message: string, data?: any, allowFullData: boolean = false): void {
     if (!this.shouldLog('DEBUG')) return;
 
-    const formattedMessage = this.formatMessage('DEBUG', message, this.truncateData(data));
+    const formattedMessage = this.formatMessage('DEBUG', message, allowFullData ? data : this.truncateData(data), allowFullData);
 
     if (isBrowser) {
       console.debug(formattedMessage);
@@ -133,23 +144,23 @@ class Logger {
     this.writeToStorage('DEBUG', message, data);
   }
 
-  info(message: string, data?: any): void {
+  info(message: string, data?: any, allowFullData: boolean = false): void {
     if (!this.shouldLog('INFO')) return;
 
-    const formattedMessage = this.formatMessage('INFO', message, this.truncateData(data));
+    const formattedMessage = this.formatMessage('INFO', message, allowFullData ? data : this.truncateData(data), allowFullData);
     console.log(formattedMessage);
     this.writeToStorage('INFO', message, data);
   }
 
-  warn(message: string, data?: any): void {
+  warn(message: string, data?: any, allowFullData: boolean = false): void {
     if (!this.shouldLog('WARN')) return;
 
-    const formattedMessage = this.formatMessage('WARN', message, this.truncateData(data));
+    const formattedMessage = this.formatMessage('WARN', message, allowFullData ? data : this.truncateData(data), allowFullData);
     console.warn(formattedMessage);
     this.writeToStorage('WARN', message, data);
   }
 
-  error(message: string, error?: Error, data?: any): void {
+  error(message: string, error?: Error, data?: any, allowFullData: boolean = true): void {
     if (!this.shouldLog('ERROR')) return;
 
     const errorData = error ? {
@@ -159,7 +170,8 @@ class Logger {
       ...data
     } : data;
 
-    const formattedMessage = this.formatMessage('ERROR', message, this.truncateData(errorData));
+    // 错误日志默认允许完整输出
+    const formattedMessage = this.formatMessage('ERROR', message, errorData, allowFullData);
     console.error(formattedMessage);
     this.writeToStorage('ERROR', message, errorData);
   }
