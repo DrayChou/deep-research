@@ -64,7 +64,11 @@ export class EmailChannel implements NotificationChannel {
   private async sendViaSMTP(message: NotificationMessage): Promise<boolean> {
     try {
       // 动态导入 nodemailer（仅在 Node.js 环境中可用）
-      const nodemailer = await import('nodemailer');
+      const nodemailer = await eval('import("nodemailer")').catch(() => null);
+      if (!nodemailer) {
+        console.warn('nodemailer not available in this environment');
+        return false;
+      }
       
       const transporter = nodemailer.createTransporter({
         host: this.smtp.host,

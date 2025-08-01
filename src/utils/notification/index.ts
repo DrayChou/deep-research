@@ -26,20 +26,33 @@ export class NotificationService {
   private channels: NotificationChannel[] = [];
   private deduplicationCache = new Map<string, DeduplicationEntry>();
   private lastCleanup = Date.now();
+  private isBrowserEnvironment: boolean;
 
   constructor(config: NotificationConfig) {
+    // 检测浏览器环境
+    this.isBrowserEnvironment = typeof window !== 'undefined' && typeof process === 'undefined';
+    
+    // 如果是浏览器环境，禁用通知系统
+    if (this.isBrowserEnvironment) {
+      this.config = { ...config, enabled: false };
+      console.log('[NotificationService] Browser environment detected, notifications disabled');
+      return;
+    }
+    
     this.config = config;
     this.initializeChannels();
     
-    // 定期清理去重缓存
-    setInterval(() => this.cleanupDeduplicationCache(), 5 * 60 * 1000); // 每5分钟清理一次
+    // 定期清理去重缓存（仅在 Node.js 环境下）
+    if (typeof setInterval !== 'undefined') {
+      setInterval(() => this.cleanupDeduplicationCache(), 5 * 60 * 1000); // 每5分钟清理一次
+    }
   }
 
   /**
    * 发送通知（阻塞式）
    */
   async send(message: NotificationMessage): Promise<NotificationResult[]> {
-    if (!this.config.enabled) {
+    if (!this.config.enabled || this.isBrowserEnvironment) {
       return [];
     }
 
@@ -163,6 +176,11 @@ ${error}
    * 异步非阻塞发送API欠费通知的便捷方法（推荐使用）
    */
   sendApiCreditAlertAsync(provider: string, error: string, additionalInfo?: Record<string, any>): void {
+    // 浏览器环境下直接返回
+    if (this.isBrowserEnvironment) {
+      return;
+    }
+    
     const message: NotificationMessage = {
       title: `API 余额不足警告 - ${provider}`,
       content: `API 提供商 ${provider} 余额不足，请及时充值。
@@ -207,6 +225,9 @@ ${error}
    * 获取渠道状态
    */
   getChannelStatus(): Array<{ name: string; type: string; enabled: boolean; configured: boolean }> {
+    if (this.isBrowserEnvironment) {
+      return [];
+    }
     return this.channels.map(channel => ({
       name: channel.name,
       type: channel.type,
@@ -219,6 +240,9 @@ ${error}
    * 测试所有渠道
    */
   async testAllChannels(): Promise<NotificationResult[]> {
+    if (this.isBrowserEnvironment) {
+      return [];
+    }
     const testMessage: NotificationMessage = {
       title: '通知系统测试',
       content: `这是一条测试消息，用于验证通知渠道是否正常工作。
@@ -374,14 +398,18 @@ ${error}
    * 清理过期的去重缓存
    */
   private cleanupDeduplicationCache(): void {
+    if (this.isBrowserEnvironment) {
+      return;
+    }
+    
     const now = Date.now();
     const windowMs = this.config.deduplication.windowMinutes * 60 * 1000;
     
-    for (const [key, entry] of this.deduplicationCache.entries()) {
+    this.deduplicationCache.forEach((entry, key) => {
       if (now - entry.timestamp > windowMs) {
         this.deduplicationCache.delete(key);
       }
-    }
+    });
     
     this.lastCleanup = now;
   }
