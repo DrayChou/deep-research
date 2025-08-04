@@ -31,21 +31,42 @@ class BackgroundTaskManager {
   private tasks: Map<string, TaskProgress> = new Map();
   private runningTasks: Map<string, Promise<any>> = new Map();
   private taskOutputs: Map<string, string[]> = new Map();
+  private taskParams: Map<string, any> = new Map(); // 存储任务的请求参数
   private storageDir: string;
-  private db: TaskDatabase;
+  private db!: TaskDatabase; // 在initializeDatabaseSync()中初始化
   // 简化客户端连接跟踪 - 仅用于日志记录
   private clientConnections: Map<string, number> = new Map(); // taskId -> client count
 
   private constructor() {
     this.storageDir = path.join(process.cwd(), 'data', 'tasks');
-    this.db = new TaskDatabase(this.storageDir);
-    // 加载已存在的任务
+    // 同步初始化数据库 - 如果失败则抛出错误阻止实例创建
+    this.initializeDatabaseSync();
+    // 立即加载任务，确保在构造函数完成前完成初始化
     this.loadTasksFromDatabase();
+  }
+
+  private initializeDatabaseSync(): void {
+    try {
+      console.log('Initializing BackgroundTaskManager database...');
+      this.db = new TaskDatabase(this.storageDir);
+      console.log('✓ BackgroundTaskManager database initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize BackgroundTaskManager database:', error);
+      sseLogger.error('Database initialization failed, application cannot start without database', error instanceof Error ? error : new Error(String(error)));
+      throw error; // 重新抛出错误，阻止BackgroundTaskManager实例创建
+    }
   }
 
   static getInstance(): BackgroundTaskManager {
     if (!BackgroundTaskManager.instance) {
-      BackgroundTaskManager.instance = new BackgroundTaskManager();
+      try {
+        console.log('Creating BackgroundTaskManager singleton instance...');
+        BackgroundTaskManager.instance = new BackgroundTaskManager();
+        console.log('✓ BackgroundTaskManager singleton created successfully');
+      } catch (error) {
+        console.error('Failed to create BackgroundTaskManager singleton:', error);
+        throw error;
+      }
     }
     return BackgroundTaskManager.instance;
   }
@@ -53,10 +74,16 @@ class BackgroundTaskManager {
   // 从数据库加载任务
   private loadTasksFromDatabase(): void {
     try {
+      if (!this.db) {
+        console.log('Database not available, skipping task loading');
+        return;
+      }
+      
       const allTasks = this.db.getAllTasks();
       for (const task of allTasks) {
         this.tasks.set(task.taskId, task.progress);
         this.taskOutputs.set(task.taskId, task.outputs);
+        this.taskParams.set(task.taskId, task.requestParams); // 加载请求参数
         
         // 如果任务状态是running，将其标记为paused（因为服务器重启了）
         if (task.progress.status === 'running') {
@@ -66,20 +93,28 @@ class BackgroundTaskManager {
       console.log(`Loaded ${this.tasks.size} tasks from database`);
     } catch (error) {
       console.error('Failed to load tasks from database:', error);
+      // 如果加载任务失败，重新抛出错误阻止实例创建
+      throw error;
     }
   }
 
   // 保存任务到数据库
   private saveTaskToDatabase(taskId: string): void {
     try {
+      if (!this.db) {
+        throw new Error('Database not available');
+      }
+      
       const task = this.tasks.get(taskId);
       const outputs = this.taskOutputs.get(taskId) || [];
+      const requestParams = this.taskParams.get(taskId);
       
-      if (task) {
-        this.db.saveTask(taskId, task, outputs);
+      if (task && requestParams) {
+        this.db.saveTask(taskId, task, outputs, requestParams);
       }
     } catch (error) {
       console.error(`Failed to save task ${taskId} to database:`, error);
+      throw error; // 重新抛出错误
     }
   }
 
@@ -134,6 +169,11 @@ class BackgroundTaskManager {
     return this.taskOutputs.get(taskId) || [];
   }
 
+  // 设置任务参数
+  setTaskParams(taskId: string, params: any): void {
+    this.taskParams.set(taskId, params);
+  }
+
   // 添加任务输出并保存到数据库
   private addTaskOutput(taskId: string, output: string): void {
     const outputs = this.taskOutputs.get(taskId) || [];
@@ -150,12 +190,16 @@ class BackgroundTaskManager {
     deepResearchInstance: any,
     query: string,
     enableCitationImage: boolean,
-    enableReferences: boolean
+    enableReferences: boolean,
+    requestParams: any
   ): Promise<void> {
     // 如果任务已存在且正在运行，直接返回
     if (this.runningTasks.has(taskId)) {
       return;
     }
+
+    // 保存任务参数
+    this.taskParams.set(taskId, requestParams);
 
     // 初始化任务进度
     this.tasks.set(taskId, {
@@ -551,7 +595,7 @@ export async function GET(req: NextRequest) {
       });
 
       // 启动后台任务（不等待完成）
-      taskManager.startBackgroundTask(taskId, deepResearch, query, enableCitationImage, enableReferences);
+      taskManager.startBackgroundTask(taskId, deepResearch, query, enableCitationImage, enableReferences, taskParams);
 
       // 实时监听任务输出
       let outputIndex = 0;
