@@ -35,6 +35,10 @@ ENV PORT=3000
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Create data directories for task persistence
+RUN mkdir -p /app/data/tasks && \
+    chown -R nextjs:nodejs /app/data
+
 # Copy the standalone application
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

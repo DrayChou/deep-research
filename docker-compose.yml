@@ -13,3 +13,9 @@ services:
       - NODE_ENV=production
       - HOSTNAME=0.0.0.0
       - PORT=3000
+    volumes:
+      # 持久化数据目录映射 - 任务数据
+      - ./data/tasks:/app/data/tasks
+      # 可选：如果需要持久化其他数据，可以添加更多映射
+      - ./data/logs:/app/data/logs
+    restart: unless-stopped 
