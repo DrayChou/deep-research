@@ -40,6 +40,7 @@ Deep Research uses a variety of powerful AI models to generate in-depth research
 - **Support for SaaS and MCP:** You can use this project as a deep research service (SaaS) through the SSE API, or use it in other AI services through MCP service.
 - **Support PWA:** With Progressive Web App (PWA) technology, you can use the project like a software.
 - **Support Multi-Key payload:** Support Multi-Key payload to improve API response efficiency.
+- **Advanced Task Recovery:** Intelligent task recovery system that allows research tasks to resume from interruption points, ensuring no work is lost.
 - **Multi-language Support**: English, 简体中文, Español.
 - **Built with Modern Technologies:** Developed using Next.js 15 and Shadcn UI, ensuring a modern, performant, and visually appealing user experience.
 - **MIT Licensed:** Open-source and freely available for personal and commercial use under the MIT License.
@@ -51,6 +52,7 @@ Deep Research uses a variety of powerful AI models to generate in-depth research
 - [x] Support for other LLM models
 - [x] Support file upload and local knowledge base
 - [x] Support SSE API and MCP server
+- [x] Advanced task recovery system with intelligent resume capabilities
 
 ## 🚀 Getting Started
 
@@ -334,6 +336,35 @@ MCP_TASK_MODEL=gemini-2.0-flash-exp
 ```
 
 **Note:** To ensure that the MCP service can be used normally, you need to set the environment variables of the corresponding model and search engine. For specific environment variable parameters, please refer to [env.tpl](./env.tpl).
+
+## 🔄 Task Recovery System
+
+The project includes an advanced task recovery system that ensures research tasks can resume from interruption points. For detailed documentation, see:
+
+- [Recovery System Overview](./docs/recovery/README.md)
+- [System Architecture](./docs/recovery/architecture.md)
+- [API Reference](./docs/recovery/api-reference.md)
+- [Implementation Log](./docs/recovery/implementation-log.md)
+
+### Key Features
+
+- **Intelligent Recovery**: Automatically detects and recovers from interruptions
+- **Multiple Strategies**: Smart, manual, and custom recovery approaches
+- **Checkpoint System**: Save progress at multiple stages (0%, 25%, 50%, 75%)
+- **Auto Cleanup**: Automatic cleanup of expired tasks
+- **Type Safety**: Complete TypeScript type definitions
+
+### Running Tests
+
+```bash
+# Run all recovery system tests
+./tests/run-tests.sh
+
+# Run individual tests
+npx tsx tests/recovery/test-basic.ts
+npx tsx tests/recovery/test-unified.ts
+npx tsx tests/recovery/test-unified-deep-research.ts
+```
 
 ## 🪄 How it works
 

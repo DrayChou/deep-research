@@ -54,3 +54,6 @@ claude.ps1
 
 *.log
 *.backup
+
+# Task recovery data
+/data

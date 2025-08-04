@@ -29,7 +29,15 @@
       "Bash(npm run build:*)",
       "Bash(npx eslint:*)",
       "Bash(cp:*)",
-      "Bash(npx next lint:*)"
+      "Bash(npx next lint:*)",
+      "Bash(npm install:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(npm:*)",
+      "Bash(npx tsx:*)",
+      "Bash(move:*)",
+      "Bash(chmod:*)",
+      "Bash(./tests/run-tests.sh:*)",
+      "Bash(powershell:*)"
     ],
     "deny": []
   }
