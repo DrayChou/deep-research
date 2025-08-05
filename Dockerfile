@@ -9,6 +9,8 @@ FROM base AS deps
 RUN echo "🇨🇳 第一步：配置HTTP镜像源（绕过证书验证）..." && \
     # 备份原始源
     cp /etc/apt/sources.list /etc/apt/sources.list.backup 2>/dev/null || true && \
+    # 清理可能的debian.sources文件
+    rm -f /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
     # 使用HTTP阿里云镜像源（避免HTTPS证书验证死循环）
     echo 'deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list && \
     echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
@@ -70,6 +72,8 @@ ENV PORT=3000
 RUN echo "🇨🇳 第一步：配置HTTP镜像源（绕过证书验证）..." && \
     # 备份原始源
     cp /etc/apt/sources.list /etc/apt/sources.list.backup 2>/dev/null || true && \
+    # 清理可能的debian.sources文件
+    rm -f /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
     # 使用HTTP阿里云镜像源（避免HTTPS证书验证死循环）
     echo 'deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list && \
     echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
