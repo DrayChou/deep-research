@@ -6,7 +6,20 @@ FROM docker.m.daocloud.io/library/node:18-slim AS base
 FROM base AS deps
 
 # (可选) 如果在国内环境，可以切换 Debian 的软件源
-# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+# 修改apt源为阿里云源（增加文件检查）
+RUN mkdir -p /etc/apt/sources.list.d && \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      rm -f /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list && \
+      sed -i 's|security.debian.org|mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list; \
+    else \
+      echo 'deb https://mirrors.aliyun.com/debian/ bookworm main contrib non-free' > /etc/apt/sources.list && \
+      echo 'deb https://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free' >> /etc/apt/sources.list; \
+    fi && \
+    find /etc/apt/sources.list.d -type f 2>/dev/null | xargs -r sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com/debian-security|g' && \
+    apt-get clean
 
 WORKDIR /app
 
@@ -46,6 +59,21 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+
+# 修改apt源为阿里云源（增加文件检查）
+RUN mkdir -p /etc/apt/sources.list.d && \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      rm -f /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list && \
+      sed -i 's|security.debian.org|mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list; \
+    else \
+      echo 'deb https://mirrors.aliyun.com/debian/ bookworm main contrib non-free' > /etc/apt/sources.list && \
+      echo 'deb https://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free' >> /etc/apt/sources.list; \
+    fi && \
+    find /etc/apt/sources.list.d -type f 2>/dev/null | xargs -r sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com/debian-security|g' && \
+    apt-get clean
 
 # Debian 环境下安装 sqlite3 的运行时库
 # 使用 apt-get 代替 apk
