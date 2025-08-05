@@ -37,7 +37,11 @@
       "Bash(move:*)",
       "Bash(chmod:*)",
       "Bash(./tests/run-tests.sh:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(PORT=3002 npm run dev)",
+      "Bash(npx next build)",
+      "Bash(docker build:*)",
+      "Bash(./test-docker-build.sh:*)"
     ],
     "deny": []
   }

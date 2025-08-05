@@ -3,9 +3,9 @@
  * 支持浏览器和Node.js环境
  */
 
-// 环境检测
+// 环境检测 - 兼容Edge Runtime
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+const isNode = !isBrowser && typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined';
 
 // 浏览器环境下的额外功能
 interface BrowserStorage {

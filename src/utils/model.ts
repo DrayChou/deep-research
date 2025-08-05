@@ -17,8 +17,8 @@ const globalKeyStatus = new Map<string, Map<string, KeyStatus>>();
 // key 到 provider 的反向映射
 const keyToProviderMap = new Map<string, string>();
 
-// 清理定时器引用
-let cleanupTimer: NodeJS.Timeout | null = null;
+// 清理定时器引用 - 兼容Edge Runtime
+let cleanupTimer: any | null = null;
 
 // 根据状态码获取拉黑时长
 function getCooldownTime(statusCode: number): number {

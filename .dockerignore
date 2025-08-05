@@ -1,6 +1,21 @@
-.dockerignore
-node_modules
-README.md
-.next
+# .dockerignore
+
+# Git files
 .git
+.gitignore
+
+# Local dependencies
+node_modules
+
+# Next.js build artifacts
+.next
+
+# Local environment variables
+.env
+.env.local
+
+# Operating system files
+.DS_Store
+npm-debug.log
+
 out
