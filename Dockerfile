@@ -32,17 +32,11 @@ WORKDIR /app
 
 # 复制包管理文件
 COPY package.json pnpm-lock.yaml* ./
-COPY .pnpmfile.cjs ./
 
 # (可选) 使用国内NPM镜像源
 RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/
 
-# 【重要】移除强制编译的环境变量
-# ENV BETTER_SQLITE3_SKIP_DOWNLOAD_BINARY=true  <-- 删除这一行
-# ENV npm_config_build_from_source=true       <-- 删除这一行
-
 # 安装所有依赖
-# pnpm 会自动下载 better-sqlite3 的预编译版本
 RUN corepack enable pnpm && pnpm install --frozen-lockfile
 
 # ----------------------------------------------------------------
@@ -102,9 +96,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# 【重要】不再需要手动复制 better-sqlite3
-# 因为预编译版本会被 Next.js standalone 正确打包，所以下面这行可以删除了
-# COPY --from=deps /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+# 应用文件已通过 Next.js standalone 模式正确打包
 
 # 创建一个非 root 用户来运行应用
 RUN addgroup --system --gid 1001 nodejs && \
