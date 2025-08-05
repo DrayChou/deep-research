@@ -14,17 +14,16 @@ services:
       - HOSTNAME=0.0.0.0
       - PORT=3000
     volumes:
-      # 直接目录映射，在启动时修复权限
-      - ./data/tasks:/app/data/tasks:rw
-      - ./data/logs:/app/data/logs:rw
+      # 使用named volumes，避免权限问题
+      - deep_research_tasks:/app/data/tasks
+      - deep_research_logs:/app/data/logs
     restart: unless-stopped
-    # 以root身份启动，修复权限后切换用户
-    user: "0:0"
-    command: >
-      sh -c "
-        # 修复目录权限并设置所有者为nextjs用户
-        chown -R nextjs:nodejs /app/data/tasks /app/data/logs 2>/dev/null || true &&
-        chmod -R 755 /app/data/tasks /app/data/logs 2>/dev/null || true &&
-        # 切换到nextjs用户并启动应用
-        su nextjs -c 'node server.js'
-      "
+    # 直接使用nextjs用户运行
+    user: "1001:1001"
+
+# named volumes用于数据持久化
+volumes:
+  deep_research_tasks:
+    driver: local
+  deep_research_logs:
+    driver: local
