@@ -57,3 +57,4 @@ claude.ps1
 
 # Task recovery data
 /data
+logs/*.json

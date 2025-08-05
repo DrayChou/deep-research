@@ -27,6 +27,72 @@ export function splitText(
   return chunks;
 }
 
+/**
+ * Split text by complete lines for SSE streaming
+ * Ensures each chunk contains complete lines only, maintaining proper line breaks
+ * @param text Text to split
+ * @param maxLength Maximum length per chunk (default 8192)
+ * @returns Array of chunks, each containing complete lines
+ */
+export function splitTextByCompleteLines(text: string, maxLength: number = 8192): string[] {
+  if (!text || text.length === 0) return [];
+  
+  const lines = text.split('\n');
+  const chunks: string[] = [];
+  let currentChunk = '';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isLastLine = i === lines.length - 1;
+    const lineWithBreak = line + (isLastLine ? '' : '\n');
+    
+    // If adding this line would exceed maxLength, finalize current chunk
+    if (currentChunk.length > 0 && (currentChunk.length + lineWithBreak.length) > maxLength) {
+      chunks.push(currentChunk);
+      currentChunk = '';
+    }
+    
+    // If this single line is longer than maxLength, it must be split
+    if (lineWithBreak.length > maxLength) {
+      // First, add any existing chunk
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+      
+      // Split the long line by word boundaries
+      let remainingLine = line;
+      while (remainingLine.length > maxLength) {
+        const chunkEnd = maxLength;
+        const chunkPart = remainingLine.substring(0, chunkEnd);
+        
+        // Try to break at word boundary
+        const lastSpace = chunkPart.lastIndexOf(' ');
+        if (lastSpace > maxLength * 0.8) {
+          chunks.push(remainingLine.substring(0, lastSpace) + '\n');
+          remainingLine = remainingLine.substring(lastSpace + 1);
+        } else {
+          chunks.push(chunkPart + '\n');
+          remainingLine = remainingLine.substring(chunkEnd);
+        }
+      }
+      
+      // Handle remaining part of the long line
+      if (remainingLine.length > 0) {
+        currentChunk = remainingLine + (isLastLine ? '' : '\n');
+      }
+    } else {
+      currentChunk += lineWithBreak;
+    }
+  }
+  
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  
+  return chunks.filter(chunk => chunk.length > 0);
+}
+
 export function removeJsonMarkdown(text: string) {
   text = text.trim();
   if (text.startsWith("```json")) {
