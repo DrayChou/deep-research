@@ -18,11 +18,13 @@ services:
       - ./data/tasks:/app/data/tasks:rw
       - ./data/logs:/app/data/logs:rw
     restart: unless-stopped
-    # 启动时修复权限并启动应用
+    # 以root身份启动，修复权限后切换用户
+    user: "0:0"
     command: >
       sh -c "
-        # 修复目录权限（允许容器内用户访问）
+        # 修复目录权限并设置所有者为nextjs用户
+        chown -R nextjs:nodejs /app/data/tasks /app/data/logs 2>/dev/null || true &&
         chmod -R 755 /app/data/tasks /app/data/logs 2>/dev/null || true &&
-        # 启动应用
-        node server.js
+        # 切换到nextjs用户并启动应用
+        su nextjs -c 'node server.js'
       "
