@@ -20,6 +20,9 @@ services:
     restart: unless-stopped
     # 直接使用nextjs用户运行
     user: "1001:1001"
+    # 网络配置：默认网络 + cspc-network（如果存在）
+    networks:
+      - default
 
 # named volumes用于数据持久化
 volumes:
@@ -27,3 +30,8 @@ volumes:
     driver: local
   deep_research_logs:
     driver: local
+
+# 网络配置（cspc-network将在部署时动态添加）
+networks:
+  default:
+    driver: bridge

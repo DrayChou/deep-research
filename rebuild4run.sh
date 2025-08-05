@@ -123,6 +123,34 @@ build_image() {
     fi
 }
 
+# 配置网络
+configure_network() {
+    log_info "配置网络..."
+    
+    # 检查 cspc-network 是否存在
+    if docker network ls | grep -q cspc-network; then
+        log_info "检测到 cspc-network，配置网络连接..."
+        
+        # 创建临时的 docker-compose.override.yml 文件来添加网络配置
+        cat > docker-compose.override.yml << EOF
+services:
+  deep-research:
+    networks:
+      - cspc-network
+      - default
+
+networks:
+  cspc-network:
+    external: true
+EOF
+        log_success "已创建网络配置文件 docker-compose.override.yml"
+    else
+        log_info "未检测到 cspc-network，使用默认网络..."
+        # 移除可能存在的 override 文件
+        rm -f docker-compose.override.yml 2>/dev/null || true
+    fi
+}
+
 # 启动服务
 start_services() {
     log_info "启动服务..."
@@ -133,6 +161,8 @@ start_services() {
         log_success "服务启动成功"
     else
         log_error "服务启动失败"
+        # 清理临时文件
+        rm -f docker-compose.override.yml 2>/dev/null || true
         exit 1
     fi
 }
@@ -200,6 +230,14 @@ show_usage_info() {
 cleanup_on_error() {
     log_error "部署过程中出现错误，正在清理..."
     $DOCKER_COMPOSE_CMD down --remove-orphans 2>/dev/null || true
+    # 清理临时文件
+    rm -f docker-compose.override.yml 2>/dev/null || true
+}
+
+# 清理临时文件
+cleanup_temp_files() {
+    log_info "清理临时配置文件..."
+    rm -f docker-compose.override.yml 2>/dev/null || true
 }
 
 # 设置错误处理
@@ -212,6 +250,7 @@ main() {
     check_files
     stop_existing
     build_image
+    configure_network
     start_services
     
     # 显示状态（即使等待服务失败也要显示）
@@ -219,6 +258,9 @@ main() {
     
     # 等待服务就绪（非致命错误）
     wait_for_service || true
+    
+    # 清理临时文件
+    cleanup_temp_files
     
     show_usage_info
 }
