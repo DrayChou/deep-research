@@ -5,21 +5,26 @@ FROM docker.m.daocloud.io/library/node:18-slim AS base
 # Stage 2: Install dependencies using pre-compiled binaries
 FROM base AS deps
 
-# (可选) 如果在国内环境，可以切换 Debian 的软件源
-# 修改apt源为阿里云源（增加文件检查）
-RUN mkdir -p /etc/apt/sources.list.d && \
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-      rm -f /etc/apt/sources.list.d/debian.sources; \
-    fi && \
-    if [ -f /etc/apt/sources.list ]; then \
-      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list && \
-      sed -i 's|security.debian.org|mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list; \
-    else \
-      echo 'deb https://mirrors.aliyun.com/debian/ bookworm main contrib non-free' > /etc/apt/sources.list && \
-      echo 'deb https://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free' >> /etc/apt/sources.list; \
-    fi && \
-    find /etc/apt/sources.list.d -type f 2>/dev/null | xargs -r sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com/debian-security|g' && \
-    apt-get clean
+# HTTP→HTTPS智能源切换策略（优化构建速度和可靠性）
+RUN echo "🇨🇳 第一步：配置HTTP镜像源（绕过证书验证）..." && \
+    # 备份原始源
+    cp /etc/apt/sources.list /etc/apt/sources.list.backup 2>/dev/null || true && \
+    # 使用HTTP阿里云镜像源（避免HTTPS证书验证死循环）
+    echo 'deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
+    # 清理其他源配置
+    rm -rf /etc/apt/sources.list.d/* 2>/dev/null || true && \
+    # 第二步：使用HTTP源安装ca-certificates
+    echo "🇨🇳 第二步：使用HTTP源安装ca-certificates..." && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    # 第三步：升级为HTTPS源（安全加固）
+    echo "🇨🇳 第三步：升级为HTTPS源..." && \
+    sed -i 's|http://|https://|g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get clean && \
+    echo "✅ 源配置完成（HTTP→HTTPS升级策略）"
 
 WORKDIR /app
 
@@ -61,20 +66,26 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-# 修改apt源为阿里云源（增加文件检查）
-RUN mkdir -p /etc/apt/sources.list.d && \
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-      rm -f /etc/apt/sources.list.d/debian.sources; \
-    fi && \
-    if [ -f /etc/apt/sources.list ]; then \
-      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list && \
-      sed -i 's|security.debian.org|mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list; \
-    else \
-      echo 'deb https://mirrors.aliyun.com/debian/ bookworm main contrib non-free' > /etc/apt/sources.list && \
-      echo 'deb https://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free' >> /etc/apt/sources.list; \
-    fi && \
-    find /etc/apt/sources.list.d -type f 2>/dev/null | xargs -r sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com/debian-security|g' && \
-    apt-get clean
+# HTTP→HTTPS智能源切换策略（优化构建速度和可靠性）
+RUN echo "🇨🇳 第一步：配置HTTP镜像源（绕过证书验证）..." && \
+    # 备份原始源
+    cp /etc/apt/sources.list /etc/apt/sources.list.backup 2>/dev/null || true && \
+    # 使用HTTP阿里云镜像源（避免HTTPS证书验证死循环）
+    echo 'deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free non-free-firmware' >> /etc/apt/sources.list && \
+    # 清理其他源配置
+    rm -rf /etc/apt/sources.list.d/* 2>/dev/null || true && \
+    # 第二步：使用HTTP源安装ca-certificates
+    echo "🇨🇳 第二步：使用HTTP源安装ca-certificates..." && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    # 第三步：升级为HTTPS源（安全加固）
+    echo "🇨🇳 第三步：升级为HTTPS源..." && \
+    sed -i 's|http://|https://|g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get clean && \
+    echo "✅ 源配置完成（HTTP→HTTPS升级策略）"
 
 # Debian 环境下安装 sqlite3 的运行时库
 # 使用 apt-get 代替 apk
