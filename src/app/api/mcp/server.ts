@@ -166,33 +166,68 @@ export function initMcpServer() {
     {
       query: z.string().describe("The topic for deep research."),
       language: z.string().optional().describe("The response Language."),
+      maxRetries: z.number().optional().default(3).describe("Maximum number of retries if the generated plan is empty."),
     },
-    async ({ query, language }, { signal }) => {
+    async ({ query, language, maxRetries = 3 }, { signal }) => {
       signal.addEventListener("abort", () => {
         throw new Error("The client closed unexpectedly!");
       });
 
-      try {
-        const deepResearch = initDeepResearchServer({ language });
-        const result = await deepResearch.writeReportPlan(query);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ reportPlan: result }) },
-          ],
-        };
-      } catch (error) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Error: ${
-                error instanceof Error ? error.message : "Unknown error"
-              }`,
-            },
-          ],
-        };
+      const deepResearch = initDeepResearchServer({ language });
+      let lastError: Error | null = null;
+
+      // 重试机制：确保生成有效的研究计划
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`Generating research plan, attempt ${attempt}/${maxRetries}`);
+          const result = await deepResearch.writeReportPlan(query);
+          
+          // 检查返回的计划是否为空
+          if (!result || result.trim() === '') {
+            const error = new Error(`Attempt ${attempt}: AI returned an empty research plan`);
+            lastError = error;
+            console.warn(error.message);
+            
+            // 如果不是最后一次尝试，继续重试
+            if (attempt < maxRetries) {
+              console.log(`Retrying in 1 second...`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+          } else {
+            // 成功生成非空计划
+            console.log(`Research plan generated successfully on attempt ${attempt}`);
+            return {
+              content: [
+                { type: "text", text: JSON.stringify({ reportPlan: result, attempts: attempt }) },
+              ],
+            };
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Unknown error');
+          console.error(`Attempt ${attempt} failed:`, lastError.message);
+          
+          // 如果不是最后一次尝试，继续重试
+          if (attempt < maxRetries) {
+            console.log(`Retrying in 1 second...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
+        }
       }
+
+      // 所有重试都失败了
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error: Failed to generate a valid research plan after ${maxRetries} attempts. Last error: ${
+              lastError?.message || "AI returned empty response"
+            }. Please check your query and try again.`,
+          },
+        ],
+      };
     }
   );
 
@@ -207,6 +242,19 @@ export function initMcpServer() {
       signal.addEventListener("abort", () => {
         throw new Error("The client closed unexpectedly!");
       });
+
+      // 严格检查研究计划是否为空
+      if (!plan || plan.trim() === '') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Error: Research plan is required to generate SERP queries. Please generate a research plan first using 'write-research-plan' tool.",
+            },
+          ],
+        };
+      }
 
       try {
         const deepResearch = initDeepResearchServer({ language });
@@ -372,6 +420,31 @@ export function initMcpServer() {
       signal.addEventListener("abort", () => {
         throw new Error("The client closed unexpectedly!");
       });
+
+      // 严格检查必需参数
+      if (!plan || plan.trim() === '') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Error: Research plan is required to write final report. Please generate a research plan first using 'write-research-plan' tool.",
+            },
+          ],
+        };
+      }
+
+      if (!tasks || tasks.length === 0) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Error: Search task results are required to write final report. Please execute search tasks first using 'search-task' tool.",
+            },
+          ],
+        };
+      }
 
       try {
         const deepResearch = initDeepResearchServer({ language, maxResult });
