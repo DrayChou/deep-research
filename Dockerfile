@@ -100,7 +100,7 @@ COPY --from=builder /app/.next/static ./.next/static
 
 # 创建一个非 root 用户来运行应用
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+    adduser --system --uid 1001 --shell /bin/sh nextjs
 
 # 设置应用目录权限（数据目录通过volume挂载）
 RUN chown -R nextjs:nodejs /app
