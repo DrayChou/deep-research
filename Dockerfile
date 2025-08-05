@@ -25,6 +25,7 @@ WORKDIR /app
 
 # 复制包管理文件
 COPY package.json pnpm-lock.yaml* ./
+COPY .pnpmfile.cjs ./  # <-- 确保加上了这一行！
 
 # (可选) 使用国内NPM镜像源
 RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/
