@@ -118,9 +118,18 @@ class BackgroundTaskManager {
     }
   }
 
-  // 生成任务ID - 包含所有相关参数，使用强哈希算法
+  // 生成任务ID - 优先使用userMessageId，否则使用参数计算
   generateTaskId(allParams: Record<string, any>): string {
-    // 提取所有影响任务结果的参数
+    // 策略1：如果有 userMessageId，直接使用它作为任务ID
+    // 因为一般情况下任务就是回复用户问题，可以一一对应
+    const userMessageId = allParams.userMessageId;
+    if (userMessageId && typeof userMessageId === 'string' && userMessageId.trim() !== '') {
+      console.log(`Using userMessageId as task ID: ${userMessageId}`);
+      return userMessageId.trim();
+    }
+    
+    // 策略2：没有userMessageId时，使用参数计算生成哈希ID
+    console.log('No userMessageId found, generating task ID from parameters');
     const fingerprint = {
       // 基础查询参数
       query: (allParams.query || '').trim().toLowerCase(),
@@ -139,7 +148,6 @@ class BackgroundTaskManager {
       
       // 用户相关参数
       userId: allParams.userId,
-      userMessageId: allParams.userMessageId,
       topicId: allParams.topicId,
       
       // 其他可能影响结果的参数

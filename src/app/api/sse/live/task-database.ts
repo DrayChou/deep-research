@@ -3,8 +3,8 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-// SQLite实现类型
-type SQLiteImplementation = 'better-sqlite3' | 'node-sqlite' | 'none';
+// SQLite实现类型 - 只支持Node.js内置SQLite
+type SQLiteImplementation = 'node-sqlite' | 'none';
 
 // 全局可用的SQLite实现
 let availableImplementation: SQLiteImplementation = 'none';
@@ -90,12 +90,11 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
     try {
       const dbPath = path.join(this.storageDir, 'tasks.db');
       
-      if (this.implementation === 'better-sqlite3') {
-        this.db = new sqliteModule(dbPath);
-        console.log('Using Better-SQLite3 database');
-      } else if (this.implementation === 'node-sqlite') {
+      if (this.implementation === 'node-sqlite') {
         this.db = new sqliteModule.DatabaseSync(dbPath);
         console.log('Using Node.js built-in SQLite database');
+      } else {
+        throw new Error(`Unsupported SQLite implementation: ${this.implementation}`);
       }
       
       this.initializeTables();
@@ -141,25 +140,17 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
     
     // 为新字段创建JSON索引（如果字段存在）
     try {
-      const jsonIndexSQL = this.implementation === 'better-sqlite3' 
-        ? `
-          CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(JSON_EXTRACT(request_params, '$.userId'));
-          CREATE INDEX IF NOT EXISTS idx_tasks_topic_id ON tasks(JSON_EXTRACT(request_params, '$.topicId'));
-        `
-        : `
-          CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(json_extract(request_params, '$.userId'));
-          CREATE INDEX IF NOT EXISTS idx_tasks_topic_id ON tasks(json_extract(request_params, '$.topicId'));
-        `;
+      const jsonIndexSQL = `
+        CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(json_extract(request_params, '$.userId'));
+        CREATE INDEX IF NOT EXISTS idx_tasks_topic_id ON tasks(json_extract(request_params, '$.topicId'));
+      `;
       this.db.exec(jsonIndexSQL);
     } catch {
       console.log('JSON indexes creation skipped (request_params column may not exist yet)');
     }
     
     // 设置SQLite优化参数
-    if (this.implementation === 'better-sqlite3') {
-      this.db.pragma('journal_mode = WAL');
-      this.db.pragma('synchronous = NORMAL');
-    } else if (this.implementation === 'node-sqlite') {
+    if (this.implementation === 'node-sqlite') {
       this.db.exec(`
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=NORMAL;
@@ -218,11 +209,8 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       
-      const sql = this.implementation === 'better-sqlite3' 
-        ? `INSERT OR REPLACE INTO tasks (task_id, progress, outputs, last_saved, request_params, updated_at)
-           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-        : `INSERT OR REPLACE INTO tasks (task_id, progress, outputs, last_saved, request_params, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`;
+      const sql = `INSERT OR REPLACE INTO tasks (task_id, progress, outputs, last_saved, request_params, updated_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))`;
       
       const stmt = this.db.prepare(sql);
       stmt.run(
@@ -310,8 +298,8 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       
-      // JSON提取语法在不同实现中相同
-      const jsonExtract = this.implementation === 'better-sqlite3' ? 'JSON_EXTRACT' : 'json_extract';
+      // 使用Node.js内置SQLite的JSON提取语法
+      const jsonExtract = 'json_extract';
       const stmt = this.db.prepare(`
         SELECT 
           COUNT(*) as total,
@@ -340,7 +328,7 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       
-      const jsonExtract = this.implementation === 'better-sqlite3' ? 'JSON_EXTRACT' : 'json_extract';
+      const jsonExtract = 'json_extract';
       const stmt = this.db.prepare(`
         SELECT task_id, progress, outputs, last_saved, request_params, created_at, updated_at
         FROM tasks 
@@ -393,7 +381,7 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
       
-      const jsonExtract = this.implementation === 'better-sqlite3' ? 'JSON_EXTRACT' : 'json_extract';
+      const jsonExtract = 'json_extract';
       const stmt = this.db.prepare(`
         DELETE FROM tasks 
         WHERE updated_at < ? 
@@ -401,7 +389,7 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
       `);
 
       const result = stmt.run(cutoffDate.toISOString());
-      return this.implementation === 'better-sqlite3' ? result.changes : result.changes;
+      return result.changes;
     } catch (error) {
       console.error('Failed to cleanup old tasks:', error);
       return 0;
@@ -442,7 +430,7 @@ class TaskDatabase implements DatabaseInterface {
       }
       
       if (availableImplementation === 'none') {
-        throw new Error('SQLite database is required but no implementation is available.\nPlease install better-sqlite3 or ensure Node.js built-in SQLite is available.');
+        throw new Error('SQLite database is required but Node.js built-in SQLite is not available.\nPlease ensure you are using Node.js version 22.5.0 or later with SQLite support.');
       }
       
       console.log(`Creating database with ${availableImplementation} implementation...`);
@@ -454,19 +442,9 @@ class TaskDatabase implements DatabaseInterface {
   }
 
   private detectAvailableSQLiteSync(): void {
-    console.log('Detecting available SQLite implementations...');
+    console.log('Detecting Node.js built-in SQLite...');
     
-    // 策略1：优先检测Better-SQLite3
-    try {
-      sqliteModule = require('better-sqlite3');
-      availableImplementation = 'better-sqlite3';
-      console.log('✓ Better-SQLite3 is available and ready to use');
-      return;
-    } catch (error) {
-      console.log('✗ Better-SQLite3 not available:', error instanceof Error ? error.message : 'Unknown error');
-    }
-    
-    // 策略2：回退到Node.js内置SQLite
+    // 只使用Node.js内置SQLite
     try {
       const { DatabaseSync } = require('node:sqlite');
       sqliteModule = { DatabaseSync };
@@ -477,9 +455,9 @@ class TaskDatabase implements DatabaseInterface {
       console.log('✗ Node.js built-in SQLite not available:', error instanceof Error ? error.message : 'Unknown error');
     }
     
-    // 如果都不可用，记录错误
+    // 如果不可用，记录错误
     availableImplementation = 'none';
-    console.error('✗ No SQLite implementation available! Database functionality cannot be enabled.');
+    console.error('✗ Node.js built-in SQLite not available! Database functionality cannot be enabled.');
   }
 
   saveTask(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams): void {
