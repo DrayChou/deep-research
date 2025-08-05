@@ -1,5 +1,5 @@
-# Stage 1: Base image with Node.js 18 on Debian-slim
-FROM docker.m.daocloud.io/library/node:18-slim AS base
+# Stage 1: Base image with Node.js 24 on Debian-slim
+FROM docker.m.daocloud.io/library/node:24-slim AS base
 
 # ----------------------------------------------------------------
 # Stage 2: Install dependencies using pre-compiled binaries
