@@ -14,15 +14,15 @@ services:
       - HOSTNAME=0.0.0.0
       - PORT=3000
     volumes:
-      # 持久化数据目录映射 - 任务数据
+      # 直接目录映射，在启动时修复权限
       - ./data/tasks:/app/data/tasks:rw
-      # 可选：如果需要持久化其他数据，可以添加更多映射
       - ./data/logs:/app/data/logs:rw
-    restart: unless-stopped 
-    # 在容器启动前确保目录权限正确
+    restart: unless-stopped
+    # 启动时修复权限并启动应用
     command: >
       sh -c "
-        chmod -R 755 /app/data &&
-        chown -R nextjs:nodejs /app/data || true &&
+        # 修复目录权限（允许容器内用户访问）
+        chmod -R 755 /app/data/tasks /app/data/logs 2>/dev/null || true &&
+        # 启动应用
         node server.js
       "

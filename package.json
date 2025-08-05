@@ -76,7 +76,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "sonner": "^2.0.1",
-    "sqlite3": "^5.1.7",
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7",
     "ts-md5": "^1.3.1",

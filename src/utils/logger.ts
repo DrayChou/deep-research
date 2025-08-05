@@ -5,7 +5,19 @@
 
 // 环境检测 - 兼容Edge Runtime
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-const isNode = !isBrowser && typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined';
+
+// Edge Runtime 兼容的Node.js检测
+let isNode = false;
+try {
+  isNode = !isBrowser && 
+           typeof process !== 'undefined' && 
+           typeof globalThis.process !== 'undefined' &&
+           'versions' in process &&
+           'node' in (process.versions || {});
+} catch {
+  // Edge Runtime 或其他受限环境
+  isNode = false;
+}
 
 // 浏览器环境下的额外功能
 interface BrowserStorage {

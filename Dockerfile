@@ -102,10 +102,8 @@ COPY --from=builder /app/.next/static ./.next/static
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# 创建数据持久化目录并设置正确权限
-RUN mkdir -p /app/data/tasks && \
-    chown -R nextjs:nodejs /app && \
-    chmod -R 755 /app/data
+# 设置应用目录权限（数据目录通过volume挂载）
+RUN chown -R nextjs:nodejs /app
 
 # 切换到非 root 用户
 USER nextjs
