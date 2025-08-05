@@ -15,7 +15,14 @@ services:
       - PORT=3000
     volumes:
       # 持久化数据目录映射 - 任务数据
-      - ./data/tasks:/app/data/tasks
+      - ./data/tasks:/app/data/tasks:rw
       # 可选：如果需要持久化其他数据，可以添加更多映射
-      - ./data/logs:/app/data/logs
+      - ./data/logs:/app/data/logs:rw
     restart: unless-stopped 
+    # 在容器启动前确保目录权限正确
+    command: >
+      sh -c "
+        chmod -R 755 /app/data &&
+        chown -R nextjs:nodejs /app/data || true &&
+        node server.js
+      "

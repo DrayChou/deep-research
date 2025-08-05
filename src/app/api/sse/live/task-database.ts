@@ -89,10 +89,25 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
   private initializeDatabase(): void {
     try {
       const dbPath = path.join(this.storageDir, 'tasks.db');
+      console.log(`Initializing SQLite database at: ${dbPath}`);
       
       if (this.implementation === 'node-sqlite') {
-        this.db = new sqliteModule.DatabaseSync(dbPath);
-        console.log('Using Node.js built-in SQLite database');
+        // 检查父目录权限
+        const parentDir = path.dirname(dbPath);
+        if (!fs.existsSync(parentDir)) {
+          throw new Error(`Database parent directory does not exist: ${parentDir}`);
+        }
+        
+        try {
+          this.db = new sqliteModule.DatabaseSync(dbPath);
+          console.log('✓ Node.js built-in SQLite database initialized successfully');
+        } catch (sqliteError) {
+          console.error('SQLite initialization failed:', sqliteError);
+          console.error('Database path:', dbPath);
+          console.error('Parent directory exists:', fs.existsSync(parentDir));
+          console.error('Parent directory stats:', fs.statSync(parentDir));
+          throw sqliteError;
+        }
       } else {
         throw new Error(`Unsupported SQLite implementation: ${this.implementation}`);
       }
@@ -106,8 +121,21 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
   }
 
   private ensureStorageDir(): void {
-    if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.storageDir)) {
+        console.log(`Creating storage directory: ${this.storageDir}`);
+        fs.mkdirSync(this.storageDir, { recursive: true, mode: 0o755 });
+      }
+      
+      // 测试目录是否可写
+      const testFile = path.join(this.storageDir, '.write-test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      
+      console.log(`✓ Storage directory verified: ${this.storageDir}`);
+    } catch (error) {
+      console.error(`Failed to ensure storage directory: ${this.storageDir}`, error);
+      throw new Error(`Storage directory not accessible: ${this.storageDir}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
