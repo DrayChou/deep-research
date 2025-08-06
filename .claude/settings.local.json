@@ -41,7 +41,8 @@
       "Bash(PORT=3002 npm run dev)",
       "Bash(npx next build)",
       "Bash(docker build:*)",
-      "Bash(./test-docker-build.sh:*)"
+      "Bash(./test-docker-build.sh:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
