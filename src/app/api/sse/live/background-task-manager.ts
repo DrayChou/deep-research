@@ -6,6 +6,7 @@
 import { logger } from "@/utils/logger";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import * as os from "node:os";
 import TaskDatabase from "./task-database";
 import { withErrorRecovery, createErrorContext } from "./error-handler";
 
@@ -49,15 +50,51 @@ class BackgroundTaskManager {
   private clientConnections: Map<string, number> = new Map();
   private maxConnectionsPerTask = 100;
   private maxTasks = 1000;
-  private maxMemoryUsage = 500 * 1024 * 1024; // 500MB
+  private maxMemoryUsage: number = 500 * 1024 * 1024; // Default 500MB, will be recalculated
+  private systemTotalMemory: number = 0;
   private cleanupInterval: NodeJS.Timeout | null = null;
   private lastCleanupTime = Date.now();
+  private memoryPressureLevel = 0; // 0-3: normal, warning, critical, emergency
 
   private constructor() {
     this.storageDir = path.join(process.cwd(), 'data', 'tasks');
+    this.initializeMemorySettings();
     this.initializeDatabaseSync();
     this.loadTasksFromDatabase();
     this.startCleanupProcess();
+  }
+
+  private initializeMemorySettings(): void {
+    // Get system total memory
+    this.systemTotalMemory = os.totalmem();
+    
+    // Calculate memory allocation based on system resources
+    const systemMemoryGB = this.systemTotalMemory / (1024 * 1024 * 1024);
+    
+    if (systemMemoryGB <= 2) {
+      // Low memory systems: use 20% of total memory
+      this.maxMemoryUsage = Math.floor(this.systemTotalMemory * 0.20);
+    } else if (systemMemoryGB <= 8) {
+      // Medium memory systems: use 35% of total memory
+      this.maxMemoryUsage = Math.floor(this.systemTotalMemory * 0.35);
+    } else if (systemMemoryGB <= 16) {
+      // High memory systems: use 40% of total memory with 6GB cap
+      this.maxMemoryUsage = Math.min(
+        Math.floor(this.systemTotalMemory * 0.40),
+        6 * 1024 * 1024 * 1024 // 6GB cap
+      );
+    } else {
+      // Very high memory systems: use 30% with 12GB cap
+      this.maxMemoryUsage = Math.min(
+        Math.floor(this.systemTotalMemory * 0.30),
+        12 * 1024 * 1024 * 1024 // 12GB cap
+      );
+    }
+    
+    // Ensure minimum 512MB allocation for better performance
+    this.maxMemoryUsage = Math.max(this.maxMemoryUsage, 512 * 1024 * 1024);
+    
+    console.log(`Memory allocation: ${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB / ${Math.round(systemMemoryGB * 1024)}MB (${Math.round((this.maxMemoryUsage / this.systemTotalMemory) * 100)}%)`);
   }
 
   private initializeDatabaseSync(): void {
@@ -122,10 +159,21 @@ class BackgroundTaskManager {
   }
 
   private startCleanupProcess(): void {
-    // Clean up every 30 minutes
+    // More frequent cleanup with smart scheduling
     this.cleanupInterval = setInterval(() => {
       this.performCleanup();
-    }, 30 * 60 * 1000);
+    }, 5 * 60 * 1000); // Every 5 minutes
+    
+    // Log memory stats every minute in development
+    if (process.env.NODE_ENV === 'development') {
+      setInterval(() => {
+        const memUsage = process.memoryUsage();
+        this.updateMemoryPressureLevel(memUsage);
+        if (this.memoryPressureLevel > 0) {
+          console.log(`[Memory Monitor] Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB (Level: ${this.memoryPressureLevel})`);
+        }
+      }, 60 * 1000); // Every minute
+    }
   }
 
   private performCleanup(): void {
@@ -133,29 +181,33 @@ class BackgroundTaskManager {
       const now = Date.now();
       const timeSinceLastCleanup = now - this.lastCleanupTime;
       
-      // Only perform cleanup if at least 15 minutes have passed
-      if (timeSinceLastCleanup < 15 * 60 * 1000) {
+      // Smart cleanup frequency based on memory pressure
+      const minCleanupInterval = this.memoryPressureLevel > 1 ? 2 * 60 * 1000 : 5 * 60 * 1000; // 2min if critical, otherwise 5min
+      
+      if (timeSinceLastCleanup < minCleanupInterval) {
         return;
       }
 
       console.log('Starting BackgroundTaskManager cleanup...');
       
-      // Check memory usage first
+      // Check memory usage and update pressure level
       const memoryUsage = process.memoryUsage();
+      this.updateMemoryPressureLevel(memoryUsage);
       const heapUsed = memoryUsage.heapUsed;
       
       console.log('Memory usage before cleanup:', {
         heapUsed: `${Math.round(heapUsed / 1024 / 1024)}MB`,
         maxMemory: `${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB`,
-        usagePercent: `${Math.round((heapUsed / this.maxMemoryUsage) * 100)}%`
+        systemTotal: `${Math.round(this.systemTotalMemory / 1024 / 1024 / 1024 * 100) / 100}GB`,
+        usagePercent: `${Math.round((heapUsed / this.maxMemoryUsage) * 100)}%`,
+        pressureLevel: this.memoryPressureLevel
       });
 
-      // If memory usage is high, perform aggressive cleanup
-      if (heapUsed > this.maxMemoryUsage * 0.8) {
-        console.log('High memory usage detected, performing aggressive cleanup');
-        this.aggressiveCleanup();
-      } else {
-        // Normal cleanup
+      // Use gradual cleanup based on pressure level
+      const cleanupPerformed = this.performGradualCleanup();
+      
+      if (!cleanupPerformed) {
+        // Normal maintenance cleanup
         this.cleanupOldTasks();
         this.cleanupOrphanedConnections();
         this.cleanupLargeOutputs();
@@ -164,9 +216,12 @@ class BackgroundTaskManager {
       this.lastCleanupTime = now;
       
       const finalMemoryUsage = process.memoryUsage();
+      this.updateMemoryPressureLevel(finalMemoryUsage);
       console.log('Memory usage after cleanup:', {
         heapUsed: `${Math.round(finalMemoryUsage.heapUsed / 1024 / 1024)}MB`,
-        usagePercent: `${Math.round((finalMemoryUsage.heapUsed / this.maxMemoryUsage) * 100)}%`
+        usagePercent: `${Math.round((finalMemoryUsage.heapUsed / this.maxMemoryUsage) * 100)}%`,
+        pressureLevel: this.memoryPressureLevel,
+        freed: `${Math.round((heapUsed - finalMemoryUsage.heapUsed) / 1024 / 1024)}MB`
       });
       
       console.log('BackgroundTaskManager cleanup completed');
@@ -344,6 +399,70 @@ class BackgroundTaskManager {
     await this.saveTaskToDatabase(taskId);
   }
 
+  private updateMemoryPressureLevel(memoryUsage: NodeJS.MemoryUsage): void {
+    const usagePercent = (memoryUsage.heapUsed / this.maxMemoryUsage) * 100;
+    
+    if (usagePercent < 50) {
+      this.memoryPressureLevel = 0; // Normal
+    } else if (usagePercent < 65) {
+      this.memoryPressureLevel = 1; // Warning
+    } else if (usagePercent < 80) {
+      this.memoryPressureLevel = 2; // Critical
+    } else {
+      this.memoryPressureLevel = 3; // Emergency
+    }
+  }
+
+  private performGradualCleanup(): boolean {
+    const startMemory = process.memoryUsage().heapUsed;
+    let cleaned = false;
+
+    switch (this.memoryPressureLevel) {
+      case 1: // Warning - light cleanup
+        this.cleanupLargeOutputs();
+        this.cleanupOrphanedConnections();
+        cleaned = true;
+        break;
+        
+      case 2: // Critical - moderate cleanup
+        this.cleanupOldTasks();
+        this.cleanupLargeOutputs();
+        this.cleanupOrphanedConnections();
+        // Remove completed tasks older than 2 hours
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        for (const [taskId, task] of this.tasks.entries()) {
+          if (task.status === 'completed' && 
+              new Date(task.timestamp).getTime() < twoHoursAgo) {
+            this.deleteTask(taskId);
+          }
+        }
+        cleaned = true;
+        break;
+        
+      case 3: // Emergency - aggressive cleanup
+        this.aggressiveCleanup();
+        // Force garbage collection if available
+        if (global.gc) {
+          global.gc();
+        }
+        cleaned = true;
+        break;
+        
+      default:
+        // Normal - no cleanup needed
+        break;
+    }
+
+    const endMemory = process.memoryUsage().heapUsed;
+    const freed = startMemory - endMemory;
+    
+    if (cleaned && freed > 0) {
+      console.log(`Gradual cleanup freed ${Math.round(freed / 1024 / 1024)}MB (pressure level: ${this.memoryPressureLevel})`);
+    }
+    
+    return cleaned;
+  }
+
   async startBackgroundTask(
     taskId: string,
     deepResearchInstance: any,
@@ -356,16 +475,22 @@ class BackgroundTaskManager {
       return;
     }
 
-    // Check memory usage before starting new task
+    // Smart memory management with gradual cleanup
     const memoryUsage = process.memoryUsage();
-    if (memoryUsage.heapUsed > this.maxMemoryUsage * 0.9) {
-      console.log('Memory usage too high, performing cleanup before starting new task');
-      this.aggressiveCleanup();
+    this.updateMemoryPressureLevel(memoryUsage);
+    
+    // Try gradual cleanup first based on pressure level
+    if (this.memoryPressureLevel > 0) {
+      console.log(`Memory pressure detected (level ${this.memoryPressureLevel}), performing gradual cleanup`);
+      this.performGradualCleanup();
       
-      // Check again after cleanup
-      const cleanupMemoryUsage = process.memoryUsage();
-      if (cleanupMemoryUsage.heapUsed > this.maxMemoryUsage * 0.8) {
-        throw new Error('System memory usage too high to start new task');
+      // Re-evaluate after cleanup
+      const newMemoryUsage = process.memoryUsage();
+      this.updateMemoryPressureLevel(newMemoryUsage);
+      
+      // If still in emergency state, deny the request
+      if (this.memoryPressureLevel >= 3) {
+        throw new Error(`System memory usage too high to start new task (pressure level: ${this.memoryPressureLevel})`);
       }
     }
 
