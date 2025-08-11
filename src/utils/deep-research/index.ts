@@ -18,6 +18,8 @@ import { pick, unique, flat, isFunction } from "radash";
 import { Logger, logger } from "@/utils/logger";
 import { NotificationService } from "@/utils/notification";
 import { notificationConfig } from "@/utils/notification/config";
+import { getTokenUsageAnalysis } from "@/utils/model-limits";
+import { tokenMonitor } from "@/utils/token-monitor";
 
 // 类型定义
 type Source = {
@@ -221,9 +223,22 @@ class DeepResearch {
       this.onMessage("message", { type: "text", text: "\n</report-plan>\n\n" });
 
       const duration = Date.now() - startTime;
+      
+      // 分析Token使用情况
+      const tokenAnalysis = getTokenUsageAnalysis(
+        this.options.AIProvider.thinkingModel,
+        null, // AI SDK可能不返回token信息
+        null,
+        systemPrompt + '\n\n' + userPrompt
+      );
+      
       this.logger.logLLMCall('writeReportPlan',
         { model: this.options.AIProvider.thinkingModel },
-        { promptLength: userPrompt.length, content: query },
+        { 
+          promptLength: userPrompt.length, 
+          content: query,
+          tokenAnalysis 
+        },
         { contentLength: content.length, reasoningLength: reasoningContent.length },
         duration
       );
@@ -314,9 +329,22 @@ class DeepResearch {
         thinkTagStreamProcessor.end();
 
         const duration = Date.now() - startTime;
+        
+        // 分析Token使用情况
+        const tokenAnalysis = getTokenUsageAnalysis(
+          this.options.AIProvider.thinkingModel,
+          null,
+          null,
+          systemPrompt + '\n\n' + enhancedPrompt
+        );
+        
         this.logger.logLLMCall('generateSERPQuery',
           { model: this.options.AIProvider.thinkingModel, attempt },
-          { promptLength: enhancedPrompt.length, reportPlanLength: reportPlan.length },
+          { 
+            promptLength: enhancedPrompt.length, 
+            reportPlanLength: reportPlan.length,
+            tokenAnalysis 
+          },
           { responseLength: text.length, parsedContentLength: content.length },
           duration
         );
@@ -982,7 +1010,13 @@ class DeepResearch {
           timing: {
             requestStartTime: new Date().toISOString(),
             attemptNumber: attempt
-          }
+          },
+          tokenAnalysis: getTokenUsageAnalysis(
+            this.options.AIProvider.thinkingModel, 
+            null, 
+            null, 
+            enhancedPrompt
+          )
         }, true);
 
         const result = streamText({
@@ -996,7 +1030,17 @@ class DeepResearch {
         let sourceCount = 0;
         let streamChunks = 0;
         let firstChunkTime: number | null = null;
+        let tokenAnalysis: any = null;
 
+        // 添加详细的报告生成开始日志
+        this.logger.info(`[REPORT-SEND-START] Starting to send final report to client - Attempt ${attempt}`, {
+          reportLength: 0,
+          reportPreview: "<final-report>",
+          hasEndTag: false,
+          timestamp: new Date().toISOString(),
+          attempt
+        });
+        
         this.onMessage("message", { type: "text", text: "<final-report>\n" });
 
         for await (const part of result.fullStream) {
@@ -1015,6 +1059,15 @@ class DeepResearch {
               part.textDelta,
               (data) => {
                 content += data;
+                // 添加内容传输日志
+                if (streamChunks % 50 === 0) { // 每50个chunk记录一次
+                  this.logger.debug(`[REPORT-CONTENT-CHUNK] Sending content chunk ${streamChunks}`, {
+                    chunkLength: data.length,
+                    totalContentLength: content.length,
+                    chunkPreview: data.substring(0, 100),
+                    attempt
+                  });
+                }
                 this.onMessage("message", { type: "text", text: data });
               },
               (data) => {
@@ -1056,7 +1109,16 @@ class DeepResearch {
               });
             }
 
-            // 记录AI响应的详细完成状态
+            // 使用Token监控器进行全面分析
+            tokenAnalysis = tokenMonitor.monitorAIRequest({
+              modelName: this.options.AIProvider.thinkingModel,
+              operation: 'writeFinalReport',
+              promptText: enhancedPrompt,
+              responseText: content,
+              finishReason: part.finishReason,
+              usage: part.usage
+            });
+            
             this.logger.debug(`AI response completed for attempt ${attempt}`, {
               response: {
                 finishReason: part.finishReason,
@@ -1076,17 +1138,31 @@ class DeepResearch {
                 contentPreview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
                 contentSuffix: content.length > 200 ? '...' + content.slice(-100) : ''
               },
+              tokenAnalysis,
               attempt
             }, true);
           }
         }
+        
+        // 添加详细的报告生成完成日志
+        this.logger.info(`[REPORT-SEND-COMPLETE] Final report sending completed - Attempt ${attempt}`, {
+          finalReportLength: content.length,
+          reportPreview: content.substring(0, 300),
+          reportSuffix: content.length > 500 ? content.substring(Math.max(0, content.length - 200)) : content.substring(Math.max(0, content.length - 100)),
+          hasEndTag: true,
+          endTagSent: true,
+          timestamp: new Date().toISOString(),
+          attempt,
+          totalStreamChunks: streamChunks,
+          streamingTime: Date.now() - startTime
+        });
         
         this.onMessage("message", { type: "text", text: "\n</final-report>\n\n" });
         thinkTagStreamProcessor.end();
 
         const duration = Date.now() - startTime;
 
-        // 记录 LLM 调用详情
+        // 记录 LLM 调用详情（包含Token分析）
         this.logger.logLLMCall('writeFinalReport',
           {
             model: this.options.AIProvider.thinkingModel,
@@ -1098,7 +1174,8 @@ class DeepResearch {
             promptLength: enhancedPrompt.length,
             learningsCount: learnings.length,
             sourcesCount: sources.length,
-            imagesCount: images.length
+            imagesCount: images.length,
+            tokenAnalysis: tokenAnalysis
           },
           {
             contentLength: content.length,
@@ -1140,11 +1217,64 @@ class DeepResearch {
           continue; // 重试
         }
 
-        const title = content
-          .split("\n")[0]
-          .replaceAll("#", "")
-          .replaceAll("*", "")
-          .trim();
+        // 改进标题提取逻辑，跳过礼貌用语，找到真正的标题
+        const extractTitleFromContent = (content: string): string => {
+          const lines = content.split('\n').map(line => line.trim()).filter(line => line);
+          
+          // 查找以#开头的标题行
+          for (const line of lines) {
+            if (line.startsWith('#')) {
+              const title = line.replaceAll('#', '').trim();
+              if (title.length >= 10) {
+                return title;
+              }
+            }
+          }
+          
+          // 如果没有找到标题行，查找第一个实质性内容行（跳过礼貌用语）
+          const skipPhrases = ['好的，分析师', '好的', '分析师', 'Hello', 'Hi', 'Thank you', '谢谢'];
+          
+          for (const line of lines) {
+            // 跳过短行和礼貌用语
+            if (line.length < 10) continue;
+            
+            const isSkippable = skipPhrases.some(phrase => 
+              line.toLowerCase().startsWith(phrase.toLowerCase()) ||
+              line.toLowerCase().includes(phrase.toLowerCase())
+            );
+            
+            if (!isSkippable) {
+              // 截取合适长度作为标题，移除markdown符号
+              const cleanTitle = line
+                .replaceAll('#', '')
+                .replaceAll('*', '')
+                .replaceAll('**', '')
+                .replaceAll('`', '')
+                .trim();
+                
+              if (cleanTitle.length >= 10) {
+                return cleanTitle.length > 100 ? cleanTitle.substring(0, 100) + '...' : cleanTitle;
+              }
+            }
+          }
+          
+          // 最后的备选：使用内容中的第一个句子作为标题
+          const firstSentence = content.split(/[。！？\.\!\?]/)[0]?.trim();
+          if (firstSentence && firstSentence.length >= 10) {
+            const cleanTitle = firstSentence
+              .replaceAll('#', '')
+              .replaceAll('*', '')
+              .replaceAll('**', '')
+              .replaceAll('`', '')
+              .trim();
+            return cleanTitle.length > 100 ? cleanTitle.substring(0, 100) + '...' : cleanTitle;
+          }
+          
+          // 如果还是找不到合适的标题，使用默认标题
+          return 'Deep Research Analysis Report';
+        };
+        
+        const title = extractTitleFromContent(content);
 
         const finalReportResult: FinalReportResult = {
           title,
