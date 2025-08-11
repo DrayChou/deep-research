@@ -88,13 +88,48 @@ class TokenMonitor {
       recommendations.push('Use a model with higher output token limit or split the task');
     }
 
-    // 3. 检查finish_reason异常
-    if (config.finishReason === 'unknown' || config.finishReason === 'length') {
-      issues.push(`Finish reason: ${config.finishReason} - indicates potential truncation`);
-      if (config.finishReason === 'length') {
-        recommendations.push('Output was truncated due to token limit - consider using model with higher output capacity');
-      } else {
-        recommendations.push('Unexpected termination - check AI provider status and model availability');
+    // 3. 检查finish_reason异常 - 扩展覆盖所有需要重试的finishReason
+    const problematicReasons: Record<string, string> = {
+      // 高优先级：必须重试
+      'unknown': 'Unexpected model termination - indicates AI service issue',
+      'error': 'Model encountered an error during generation',
+      'length': 'Output truncated due to token limit',
+      'max_tokens': 'Anthropic: Output truncated due to token limit',
+      'MAX_TOKENS': 'Google Gemini: Output truncated due to token limit',
+      'FINISH_REASON_UNSPECIFIED': 'Google Gemini: Unspecified finish reason',
+      'OTHER': 'Google Gemini: Other unspecified issue',
+      
+      // 中优先级：条件重试
+      'content-filter': 'OpenAI: Content blocked by safety filter',
+      'content_filter': 'OpenAI/Azure: Content blocked by safety filter',
+      'SAFETY': 'Google Gemini: Content blocked by safety filter',
+      'PROHIBITED_CONTENT': 'Google Gemini: Prohibited content detected',
+      'RECITATION': 'Google Gemini: Content flagged for potential copyright issues',
+      'BLOCKLIST': 'Google Gemini: Content matches blocklist',
+      'SPII': 'Google Gemini: Sensitive personal information detected',
+      'refusal': 'Anthropic: Model refused to generate content'
+    };
+    
+    if (config.finishReason && problematicReasons[config.finishReason]) {
+      const description = problematicReasons[config.finishReason];
+      issues.push(`Finish reason: ${config.finishReason} - ${description}`);
+      
+      // 根据不同类型提供针对性建议
+      if (['length', 'max_tokens', 'MAX_TOKENS'].includes(config.finishReason)) {
+        recommendations.push('Increase max_tokens parameter or use model with higher token limit');
+        recommendations.push('Consider splitting the task into smaller parts');
+      } else if (['unknown', 'error', 'OTHER', 'FINISH_REASON_UNSPECIFIED'].includes(config.finishReason)) {
+        recommendations.push('Retry with exponential backoff - likely transient AI service issue');
+        recommendations.push('Check AI provider status and model availability');
+        recommendations.push('Consider using backup AI provider if issue persists');
+      } else if (['content-filter', 'content_filter', 'SAFETY', 'PROHIBITED_CONTENT', 'refusal'].includes(config.finishReason)) {
+        recommendations.push('Adjust prompt to comply with content policy');
+        recommendations.push('Use more educational/factual language');
+        recommendations.push('Retry once with modified prompt');
+      } else if (['RECITATION', 'BLOCKLIST', 'SPII'].includes(config.finishReason)) {
+        recommendations.push('Avoid direct quotes and sensitive information');
+        recommendations.push('Use paraphrasing and general terminology');
+        recommendations.push('Retry with content modifications');
       }
     }
 
@@ -133,8 +168,12 @@ class TokenMonitor {
     }
 
     // 如果是严重问题，发出错误级日志
+    const criticalFinishReasons = ['unknown', 'error', 'FINISH_REASON_UNSPECIFIED'];
+    const isCriticalFinishReason = config.finishReason && criticalFinishReasons.includes(config.finishReason);
+    
     if (analysis.utilization.contextWindow > 95 || 
-        (config.finishReason === 'unknown' && responseLength < 1000)) {
+        (isCriticalFinishReason && responseLength < 1000) ||
+        (['length', 'max_tokens', 'MAX_TOKENS'].includes(config.finishReason || '') && responseLength < 500)) {
       this.logger.error(`Critical Token Issue in ${config.operation}`, {
         model: config.modelName,
         operation: config.operation,
@@ -160,8 +199,11 @@ class TokenMonitor {
     const report = {
       summary: {
         totalRequests: configs.length,
-        successfulRequests: configs.filter(c => c.finishReason === 'stop').length,
-        truncatedRequests: configs.filter(c => c.finishReason === 'unknown' || c.finishReason === 'length').length,
+        successfulRequests: configs.filter(c => ['stop', 'end_turn', 'tool_calls', 'function_call', 'pause_turn'].includes(c.finishReason || '')).length,
+        truncatedRequests: configs.filter(c => {
+          const reason = c.finishReason || '';
+          return ['unknown', 'error', 'length', 'max_tokens', 'MAX_TOKENS', 'OTHER', 'FINISH_REASON_UNSPECIFIED'].includes(reason);
+        }).length,
         highUtilizationRequests: 0
       },
       models: {} as any,
@@ -218,7 +260,7 @@ class TokenMonitor {
       const opData = report.operations[operation];
       opData.avgResponseLength = Math.round(opData.avgResponseLength / opData.requests);
       opData.successRate = Math.round((configs.filter(c => 
-        c.operation === operation && c.finishReason === 'stop'
+        c.operation === operation && ['stop', 'end_turn', 'tool_calls', 'function_call', 'pause_turn'].includes(c.finishReason || '')
       ).length / opData.requests) * 100);
     });
 

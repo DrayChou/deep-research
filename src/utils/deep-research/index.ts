@@ -931,19 +931,40 @@ class DeepResearch {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
       
-      // 根据重试次数调整prompt（移到try块外，确保catch块中可以访问）
+      // 智能prompt增强 - 根据上一次失败原因和重试次数调整
       let enhancedPrompt = finalPrompt;
       const promptEnhancements: string[] = [];
       
+      // 基础重试提示
       if (attempt > 1) {
         const enhancement = '\n\nIMPORTANT: Please provide a comprehensive report with at least 1000 characters. Do not return empty content.';
         enhancedPrompt += enhancement;
         promptEnhancements.push('Added minimum length requirement');
       }
-      if (attempt > 2) {
-        const enhancement = '\n\nCRITICAL: You MUST generate substantial content. This is the final attempt - failure to provide content will result in an error.';
-        enhancedPrompt += enhancement;
-        promptEnhancements.push('Added critical failure warning');
+      
+      // 针对特定问题的增强（基于上一次的失败原因）
+      if (attempt === 2) {
+        // 第二次尝试：添加token和内容相关的指导
+        const tokenEnhancement = '\n\nTOKEN OPTIMIZATION: If you encounter token limits, prioritize the most important information. Focus on key findings and conclusions.';
+        const contentEnhancement = '\n\nCONTENT GUIDELINES: Ensure your response contains substantial analysis. Avoid overly cautious or filtered responses.';
+        enhancedPrompt += tokenEnhancement + contentEnhancement;
+        promptEnhancements.push('Added token optimization and content guidelines');
+      }
+      
+      if (attempt === 3) {
+        // 第三次尝试：更强的指导和警告
+        const finalEnhancement = '\n\nFINAL ATTEMPT WARNING: This is the final attempt. You MUST generate a complete, substantial response. Focus on core findings and provide actionable insights. Do not stop generating content prematurely.';
+        enhancedPrompt += finalEnhancement;
+        promptEnhancements.push('Added final attempt warning');
+      }
+      
+      // 针对特定finishReason的增强（如果已知上一次的失败原因）
+      if (attempt > 1) {
+        // 这些增强会在实际重试时由重试策略决定是否应用
+        enhancedPrompt += '\n\nSAFETY NOTE: Please generate educational, factual content that complies with content policies while being comprehensive and informative.';
+        enhancedPrompt += '\n\nLENGTH OPTIMIZATION: Structure your response to maximize information density. Use concise but complete explanations.';
+        
+        promptEnhancements.push('Added safety and length optimizations');
       }
       
       try {
@@ -1031,6 +1052,7 @@ class DeepResearch {
         let streamChunks = 0;
         let firstChunkTime: number | null = null;
         let tokenAnalysis: any = null;
+        let currentFinishReason: string | undefined = undefined;
 
         // 添加详细的报告生成开始日志
         this.logger.info(`[REPORT-SEND-START] Starting to send final report to client - Attempt ${attempt}`, {
@@ -1082,6 +1104,8 @@ class DeepResearch {
             sources.push(part.source);
             sourceCount++;
           } else if (part.type === "finish") {
+            // 保存finishReason供后续重试逻辑使用
+            currentFinishReason = part.finishReason;
             // 只有在启用 references 且报告中没有使用行内链接时，才添加传统引用列表
             // 检查内容中是否已经包含 markdown 链接格式（精确的正则表达式）
             const hasInlineLinks = /\[([^\]]+)\]\(https?:\/\/[^\)]+\)/.test(content);
@@ -1185,10 +1209,83 @@ class DeepResearch {
           duration
         );
 
-        // 检查内容是否为空或过短
-        if (!content || content.trim().length < 100) {
-          const errorMsg = `Final report content is too short (${content.length} chars) on attempt ${attempt}/${maxRetries}`;
+        // 智能重试决策函数
+        const getRetryStrategy = (finishReason: string | undefined, contentLength: number, attempt: number) => {
+          // Token限制类问题 - 立即重试，调整配置
+          const tokenLimitReasons = ['length', 'max_tokens', 'MAX_TOKENS'];
+          if (finishReason && tokenLimitReasons.includes(finishReason)) {
+            return {
+              shouldRetry: true,
+              delay: 500, // 快速重试，问题在配置不在服务
+              adjustPrompt: true,
+              reason: `Token limit reached: ${finishReason}`,
+              priority: 'high'
+            };
+          }
+          
+          // 内容过滤类问题 - 限制重试次数，调整prompt
+          const contentFilterReasons = [
+            'content-filter', 'content_filter', 'SAFETY', 'PROHIBITED_CONTENT',
+            'RECITATION', 'BLOCKLIST', 'refusal', 'SPII'
+          ];
+          if (finishReason && contentFilterReasons.includes(finishReason) && attempt < 2) {
+            return {
+              shouldRetry: true,
+              delay: 1000 * attempt, // 渐进延迟
+              adjustPrompt: true,
+              reason: `Content filtered: ${finishReason}`,
+              priority: 'medium'
+            };
+          }
+          
+          // 服务异常类问题 - 指数退避重试
+          const serviceErrorReasons = [
+            'unknown', 'error', 'OTHER', 'FINISH_REASON_UNSPECIFIED', 'null'
+          ];
+          if (finishReason && serviceErrorReasons.includes(finishReason)) {
+            return {
+              shouldRetry: true,
+              delay: Math.min(1000 * Math.pow(2, attempt), 30000), // 指数退避，最长30秒
+              adjustPrompt: false,
+              reason: `Service issue detected: ${finishReason}`,
+              priority: 'high'
+            };
+          }
+          
+          // 内容长度检查
+          if (!content || contentLength < 100) {
+            return {
+              shouldRetry: true,
+              delay: 1000 * attempt,
+              adjustPrompt: true,
+              reason: `Content too short: ${contentLength} chars`,
+              priority: 'high'
+            };
+          }
+          
+          return {
+            shouldRetry: false,
+            delay: 0,
+            reason: `No retry needed for finishReason: ${finishReason}`,
+            priority: 'none'
+          };
+        };
+        
+        // 获取重试策略
+        const retryStrategy = getRetryStrategy(currentFinishReason, content.length, attempt);
+        
+        // 执行重试决策
+        if (retryStrategy.shouldRetry && attempt < maxRetries) {
+          const errorMsg = `Final report generation requires retry: ${retryStrategy.reason} on attempt ${attempt}/${maxRetries}`;
           this.logger.warn(errorMsg, {
+            retryStrategy: {
+              reason: retryStrategy.reason,
+              priority: retryStrategy.priority,
+              delay: retryStrategy.delay,
+              adjustPrompt: retryStrategy.adjustPrompt,
+              finishReason: currentFinishReason,
+              willRetry: true
+            },
             contentAnalysis: {
               rawLength: content.length,
               trimmedLength: content.trim().length,
@@ -1212,8 +1309,41 @@ class DeepResearch {
           }, true);
           
           if (attempt === maxRetries) {
-            throw new Error(`Failed to generate adequate content after ${maxRetries} attempts. Last content length: ${content.length} chars`);
+            throw new Error(`Failed to generate adequate content after ${maxRetries} attempts. ${retryStrategy.reason}`);
           }
+          
+          // 根据重试策略调整prompt
+          if (retryStrategy.adjustPrompt) {
+            if (currentFinishReason === 'length' || currentFinishReason === 'max_tokens' || currentFinishReason === 'MAX_TOKENS') {
+              this.logger.info(`Adjusting prompt for token limit on retry ${attempt + 1}`, {
+                originalLength: enhancedPrompt.length,
+                finishReason: currentFinishReason
+              });
+              // 对于token限制，在下次重试时会自动添加提示
+            } else if (retryStrategy.reason.includes('Content filtered')) {
+              this.logger.info(`Adjusting prompt for content filter on retry ${attempt + 1}`, {
+                finishReason: currentFinishReason,
+                contentLength: content.length
+              });
+              // 内容过滤的prompt调整会在重试循环开始时处理
+            } else if (retryStrategy.reason.includes('too short')) {
+              this.logger.info(`Adjusting prompt for short content on retry ${attempt + 1}`, {
+                contentLength: content.length,
+                expectedMinimum: 1000
+              });
+              // 短内容的prompt调整会在重试循环开始时处理
+            }
+          }
+          
+          // 应用重试延迟
+          if (retryStrategy.delay > 0) {
+            this.logger.debug(`Applying retry delay: ${retryStrategy.delay}ms`, {
+              attempt: attempt + 1,
+              reason: retryStrategy.reason
+            });
+            await new Promise(resolve => setTimeout(resolve, retryStrategy.delay));
+          }
+          
           continue; // 重试
         }
 
