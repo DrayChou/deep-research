@@ -113,3 +113,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Validate integrations with live AI providers and search engines
 - Ensure proper error handling with real failure scenarios
 - Verify performance with realistic data volumes and network conditions
+
+### Git Version Control Rules
+- **NEVER** automatically commit or push changes after code modifications
+- **ONLY** perform git operations (`git commit`, `git push`, `git add`, etc.) when explicitly requested by the user
+- User must explicitly ask for commits with phrases like "commit this", "push to git", "create a commit", etc.
+- Test files, temporary databases, and debugging scripts should not be committed to version control
+- Always wait for user instruction before any git version control operations
+
+### File Size Management
+- **1000 Line Rule**: Before adding new functionality to any file that exceeds 1000 lines, first split the file into smaller, focused modules
+- **Refactoring Priority**: When a file reaches or exceeds 1000 lines, prioritize refactoring over adding new features
+- **Single Responsibility**: Each file should have a clear, single purpose and maintain focused functionality
+- **Import Management**: Split files should maintain proper import/export relationships and avoid circular dependencies
+
+### Universal Design Principles
+- **SOLID Principles**: Apply Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion across all projects
+- **Clean Architecture**: Separate concerns, use dependency injection, maintain clear boundaries between layers
+- **DRY (Don't Repeat Yourself)**: Extract common functionality into reusable components and utilities
+- **KISS (Keep It Simple, Stupid)**: Prefer simple, readable solutions over complex ones
+- **YAGNI (You Aren't Gonna Need It)**: Don't implement features until they're actually needed
+
+### Code Generation Guidelines
+When writing new code, ensure it is:
+- **简洁 (Concise)**: Write minimal code that accomplishes the task without unnecessary complexity
+- **高效 (Efficient)**: Optimize for performance, use appropriate data structures and algorithms
+- **优雅 (Elegant)**: Write clean, readable code that follows established patterns and conventions
+- **可维护 (Maintainable)**: Structure code for easy modification and extension
+- **可测试 (Testable)**: Design code that can be easily tested and validated

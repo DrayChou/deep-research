@@ -176,108 +176,160 @@ class DeepResearch {
   async writeReportPlan(query: string): Promise<string> {
     this.logger.logStep('writeReportPlan', 'start', { queryLength: query.length, queryPreview: query.substring(0, 100) });
     this.onMessage("progress", { step: "report-plan", status: "start" });
-    const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
 
-    const startTime = Date.now();
-    const systemPrompt = getSystemPrompt();
-    const userPrompt = [
-      writeReportPlanPrompt(query),
-      this.getResponseLanguagePrompt(),
-    ].join("\n\n");
-
-    this.logger.debug('Report plan prompt', {
-      systemPromptLength: systemPrompt.length,
-      userPromptLength: userPrompt.length,
-      userPromptPreview: userPrompt.substring(0, 200)
-    });
-
-    try {
-      const model = await this.getThinkingModel();
-      const result = streamText({
-        model,
-        system: systemPrompt,
-        prompt: userPrompt,
-      });
-      let content = "";
-      let reasoningContent = "";
-      this.onMessage("message", { type: "text", text: "<report-plan>\n" });
-
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          thinkTagStreamProcessor.processChunk(
-            part.textDelta,
-            (data) => {
-              content += data;
-              this.onMessage("message", { type: "text", text: data });
-            },
-            (data) => {
-              reasoningContent += data;
-              this.onMessage("reasoning", { type: "text", text: data });
-            }
-          );
-        } else if (part.type === "reasoning") {
-          reasoningContent += part.textDelta;
-          this.onMessage("reasoning", { type: "text", text: part.textDelta });
-        }
+    // 重试机制：最多重试 3 次
+    const maxRetries = 3;
+    const minContentLength = 50; // 最小内容长度要求
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
+      const startTime = Date.now();
+      const systemPrompt = getSystemPrompt();
+      
+      // 根据重试次数增强 prompt
+      let enhancedPrompt = [
+        writeReportPlanPrompt(query),
+        this.getResponseLanguagePrompt(),
+      ].join("\n\n");
+      
+      if (attempt > 1) {
+        enhancedPrompt += `\n\nIMPORTANT: This is attempt ${attempt}/${maxRetries}. Please provide a comprehensive report plan with at least ${minContentLength} characters. Do not return empty content.`;
       }
-      this.onMessage("message", { type: "text", text: "\n</report-plan>\n\n" });
 
-      const duration = Date.now() - startTime;
-      
-      // 分析Token使用情况
-      const tokenAnalysis = getTokenUsageAnalysis(
-        this.options.AIProvider.thinkingModel,
-        null, // AI SDK可能不返回token信息
-        null,
-        systemPrompt + '\n\n' + userPrompt
-      );
-      
-      this.logger.logLLMCall('writeReportPlan',
-        { model: this.options.AIProvider.thinkingModel },
-        { 
-          promptLength: userPrompt.length, 
-          content: query,
-          tokenAnalysis 
-        },
-        { contentLength: content.length, reasoningLength: reasoningContent.length },
-        duration
-      );
-
-      this.logger.logStep('writeReportPlan', 'end', {
-        contentLength: content.length,
-        duration,
-        hasReasoning: reasoningContent.length > 0
+      this.logger.debug(`Report plan prompt (attempt ${attempt})`, {
+        systemPromptLength: systemPrompt.length,
+        userPromptLength: enhancedPrompt.length,
+        userPromptPreview: enhancedPrompt.substring(0, 200),
+        attempt,
+        minContentLength
       });
 
-      this.onMessage("progress", {
-        step: "report-plan",
-        status: "end",
-        data: content,
-      });
-      return content;
-    } catch (error) {
-      this.logger.error('Failed to write report plan', error instanceof Error ? error : undefined, {
-        queryLength: query.length,
-        systemPromptLength: getSystemPrompt().length,
-        userPromptLength: userPrompt.length
-      });
-      
-      // 检测API欠费错误并发送通知（异步非阻塞）
-      if (error instanceof Error) {
-        this.handleApiCreditError(error, {
-          provider: this.options.AIProvider.provider,
-          model: this.options.AIProvider.thinkingModel,
-          operation: 'writeReportPlan',
-          additionalInfo: {
-            queryLength: query.length,
-            systemPromptLength: getSystemPrompt().length,
-            userPromptLength: userPrompt.length
-          }
+      try {
+        const model = await this.getThinkingModel();
+        const result = streamText({
+          model,
+          system: systemPrompt,
+          prompt: enhancedPrompt,
         });
+        let content = "";
+        let reasoningContent = "";
+        
+        // 只在第一次尝试时发送开始标签
+        if (attempt === 1) {
+          this.onMessage("message", { type: "text", text: "<report-plan>\n" });
+        }
+
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            thinkTagStreamProcessor.processChunk(
+              part.textDelta,
+              (data) => {
+                content += data;
+                this.onMessage("message", { type: "text", text: data });
+              },
+              (data) => {
+                reasoningContent += data;
+                this.onMessage("reasoning", { type: "text", text: data });
+              }
+            );
+          } else if (part.type === "reasoning") {
+            reasoningContent += part.textDelta;
+            this.onMessage("reasoning", { type: "text", text: part.textDelta });
+          }
+        }
+
+        const duration = Date.now() - startTime;
+        
+        // 验证内容长度
+        if (content.trim().length < minContentLength) {
+          this.logger.warn(`Report plan content too short on attempt ${attempt}/${maxRetries}`, {
+            contentLength: content.trim().length,
+            minRequired: minContentLength,
+            attempt,
+            willRetry: attempt < maxRetries,
+            content: content.substring(0, 200) + (content.length > 200 ? '...' : '')
+          });
+          
+          if (attempt < maxRetries) {
+            // 延迟后重试
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            continue; // 重试
+          } else {
+            // 最后一次尝试也失败，抛出错误
+            throw new Error(`Failed to generate adequate report plan after ${maxRetries} attempts. Content length: ${content.trim().length}, required: ${minContentLength}`);
+          }
+        }
+        
+        // 分析Token使用情况
+        const tokenAnalysis = getTokenUsageAnalysis(
+          this.options.AIProvider.thinkingModel,
+          null, // AI SDK可能不返回token信息
+          null,
+          systemPrompt + '\n\n' + enhancedPrompt
+        );
+        
+        this.logger.logLLMCall('writeReportPlan',
+          { model: this.options.AIProvider.thinkingModel, attempt },
+          { 
+            promptLength: enhancedPrompt.length, 
+            content: query,
+            tokenAnalysis 
+          },
+          { contentLength: content.length, reasoningLength: reasoningContent.length },
+          duration
+        );
+
+        this.logger.logStep('writeReportPlan', 'end', {
+          contentLength: content.length,
+          duration,
+          hasReasoning: reasoningContent.length > 0,
+          totalAttempts: attempt,
+          success: true
+        });
+
+        this.onMessage("message", { type: "text", text: "\n</report-plan>\n\n" });
+        this.onMessage("progress", {
+          step: "report-plan",
+          status: "end",
+          data: content,
+        });
+        return content;
+      } catch (error) {
+        this.logger.error(`Failed to write report plan on attempt ${attempt}/${maxRetries}`, error instanceof Error ? error : undefined, {
+          queryLength: query.length,
+          systemPromptLength: getSystemPrompt().length,
+          userPromptLength: enhancedPrompt.length,
+          attempt,
+          willRetry: attempt < maxRetries
+        });
+        
+        // 如果不是最后一次尝试，继续重试
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
+        
+        // 检测API欠费错误并发送通知（异步非阻塞）
+        if (error instanceof Error) {
+          this.handleApiCreditError(error, {
+            provider: this.options.AIProvider.provider,
+            model: this.options.AIProvider.thinkingModel,
+            operation: 'writeReportPlan',
+            additionalInfo: {
+              queryLength: query.length,
+              systemPromptLength: getSystemPrompt().length,
+              userPromptLength: enhancedPrompt.length,
+              totalAttempts: maxRetries
+            }
+          });
+        }
+        
+        throw error;
       }
-      
-      throw error;
     }
+    
+    // 如果所有重试都失败，抛出错误
+    throw new Error(`Failed to generate report plan after ${maxRetries} attempts`);
   }
 
   async generateSERPQuery(
@@ -1818,6 +1870,17 @@ ${accumulatedContent}
 
     try {
       const reportPlan = await this.writeReportPlan(query);
+      
+      // 验证报告计划不为空
+      if (!reportPlan || reportPlan.trim().length === 0) {
+        throw new Error('Report plan is empty - cannot proceed with research');
+      }
+      
+      this.logger.debug('Report plan validation passed', {
+        reportPlanLength: reportPlan.length,
+        reportPlanPreview: reportPlan.substring(0, 100)
+      });
+      
       const tasks = await this.generateSERPQuery(reportPlan);
       const results = await this.runSearchTask(tasks, enableReferences);
       const finalReport = await this.writeFinalReport(

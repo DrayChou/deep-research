@@ -58,3 +58,14 @@ claude.ps1
 # Task recovery data
 /data
 logs/*.json
+
+# Test scripts and database files (should not be committed)
+check_db*.js
+check_db*.mjs
+test_*.js
+test_*.mjs
+*.db
+*.sqlite
+*.sqlite3
+debug_*.js
+debug_*.mjs
