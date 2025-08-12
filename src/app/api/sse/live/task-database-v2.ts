@@ -187,7 +187,10 @@ class TaskDatabaseV2 {
     };
     
     try {
-      if (data.id) {
+      // 检查记录是否已存在（基于task_id而不是id）
+      const existingTask = await this.getTask(data.task_id);
+      
+      if (existingTask) {
         // 更新现有记录
         await this.updateTask(data);
       } else {
