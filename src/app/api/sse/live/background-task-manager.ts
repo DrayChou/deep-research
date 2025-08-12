@@ -8,6 +8,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 import TaskDatabase from "./task-database";
+import TaskDatabaseV2, { TaskDataV2, TaskStatusDataV2 } from "./task-database-v2";
 import { withErrorRecovery, createErrorContext } from "./error-handler";
 
 export interface TaskProgress {
@@ -45,6 +46,7 @@ class BackgroundTaskManager {
   private taskParams: Map<string, any> = new Map();
   private storageDir: string;
   private db!: TaskDatabase;
+  private dbV2!: TaskDatabaseV2;
   
   // Memory management
   private clientConnections: Map<string, number> = new Map();
@@ -99,9 +101,15 @@ class BackgroundTaskManager {
 
   private initializeDatabaseSync(): void {
     try {
-      console.log('Initializing BackgroundTaskManager database...');
+      console.log('Initializing BackgroundTaskManager databases...');
+      
+      // Initialize legacy database for backward compatibility
       this.db = new TaskDatabase(this.storageDir);
-      console.log('✓ BackgroundTaskManager database initialized successfully');
+      
+      // Initialize new optimized database
+      this.dbV2 = new TaskDatabaseV2(path.join(this.storageDir, 'tasksv2.db'));
+      
+      console.log('✓ BackgroundTaskManager databases initialized successfully');
     } catch (error) {
       console.error('Failed to initialize BackgroundTaskManager database:', error);
       logger.getInstance('BackgroundTaskManager').error('Database initialization failed', error instanceof Error ? error : new Error(String(error)));
@@ -347,10 +355,105 @@ class BackgroundTaskManager {
           this.db.saveTask(taskId, task, outputs, requestParams);
         }
       }
+      
+      // Also save to V2 database for better performance and features
+      await this.saveTaskToV2Database(taskId, statusData);
     }, context, async () => {
       // Fallback: Log to console only
       console.warn(`Database save failed for task ${taskId}, continuing without persistence`);
     });
+  }
+
+  /**
+   * Save task data to V2 database with enhanced schema
+   */
+  private async saveTaskToV2Database(taskId: string, statusData?: any): Promise<void> {
+    try {
+      if (!this.dbV2) {
+        return; // V2 database not available, skip silently
+      }
+      
+      const task = this.tasks.get(taskId);
+      const outputs = this.taskOutputs.get(taskId) || [];
+      const requestParams = this.taskParams.get(taskId);
+      
+      if (!task || !requestParams) {
+        return;
+      }
+
+      // Convert outputs array to JSON string
+      const outputsJson = JSON.stringify(outputs);
+      
+      // Convert task progress to JSON string  
+      const progressJson = JSON.stringify(task);
+      
+      // Convert request params to JSON string
+      const requestParamsJson = JSON.stringify(requestParams);
+      
+      // Extract model configuration if available
+      const modelConfig = requestParams ? JSON.stringify({
+        aiProvider: requestParams.aiProvider,
+        thinkingModel: requestParams.thinkingModel,
+        taskModel: requestParams.taskModel,
+        searchProvider: requestParams.searchProvider
+      }) : null;
+
+      // Create V2 task data
+      const taskDataV2: TaskDataV2 = {
+        task_id: taskId,
+        current_step: task.step || null,
+        step_status: task.status || null,
+        finish_reason: statusData?.finishReason || null,
+        is_valid_complete: statusData?.isValidComplete ? 1 : 0,
+        retry_count: 0, // Will be updated later if retry logic is implemented
+        processing_time: null, // Will be calculated if needed
+        last_saved: new Date().toISOString(),
+        last_step_completed_at: task.status === 'completed' ? new Date().toISOString() : null,
+        progress: progressJson,
+        outputs: outputsJson,
+        request_params: requestParamsJson,
+        model_config: modelConfig,
+        error_message: task.error || null,
+        user_agent: null, // Could be extracted from request headers
+        ip_address: null, // Could be extracted from request
+        is_deleted: 0,
+        version: 1
+      };
+
+      // Save to V2 database
+      await this.dbV2.saveTask(taskDataV2);
+      
+    } catch (error) {
+      // Don't throw, just log - V2 database is supplementary for now
+      console.warn(`V2 database save failed for task ${taskId}:`, error);
+    }
+  }
+
+  /**
+   * Update task status in V2 database
+   */
+  private async updateTaskStatusV2(taskId: string, statusData: any): Promise<void> {
+    try {
+      if (!this.dbV2) {
+        return;
+      }
+
+      const statusDataV2: TaskStatusDataV2 = {
+        currentStep: statusData.currentStep || null,
+        stepStatus: statusData.stepStatus || null,
+        lastStepCompletedAt: statusData.lastStepCompletedAt || null,
+        finishReason: statusData.finishReason || null,
+        isValidComplete: statusData.isValidComplete || null,
+        retryCount: statusData.retryCount || null,
+        processingTime: statusData.processingTime || null,
+        modelConfig: statusData.modelConfig || null,
+        errorMessage: statusData.errorMessage || null
+      };
+
+      await this.dbV2.updateTaskStatus(taskId, statusDataV2);
+    } catch (error) {
+      console.warn(`V2 database status update failed for task ${taskId}:`, error);
+    }
   }
 
   generateTaskId(allParams: Record<string, any>): string {
@@ -385,6 +488,36 @@ class BackgroundTaskManager {
 
   getTask(taskId: string): TaskProgress | null {
     return this.tasks.get(taskId) || null;
+  }
+
+  /**
+   * Get task from V2 database for enhanced queries
+   */
+  async getTaskV2(taskId: string): Promise<TaskDataV2 | null> {
+    try {
+      if (!this.dbV2) {
+        return null;
+      }
+      return await this.dbV2.getTask(taskId);
+    } catch (error) {
+      console.warn(`Failed to get task from V2 database: ${taskId}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get task statistics from V2 database
+   */
+  async getTaskStatsV2() {
+    try {
+      if (!this.dbV2) {
+        return null;
+      }
+      return await this.dbV2.getTaskStats();
+    } catch (error) {
+      console.warn('Failed to get task statistics from V2 database', error);
+      return null;
+    }
   }
 
   /**
