@@ -51,19 +51,28 @@ export class SSELiveHandler {
     const taskId = this.generateTaskId(config);
     const existingTask = this.taskManager.getTask(taskId);
 
-    // Check if existing task is valid for direct return
-    const isValidForDirectReturn = this.taskManager.isTaskValidForDirectReturn(taskId);
+    // Check task validation result
+    const validationResult = this.taskManager.getTaskValidationResult(taskId);
     
-    if (existingTask && !isValidForDirectReturn) {
-      // Task exists but is not valid (incomplete, failed, or has invalid finishReason)
+    if (existingTask && validationResult === 'invalid') {
+      // Task exists but is invalid (failed or has invalid finishReason)
       this.requestLogger.info("Found invalid task, archiving and restarting", { 
         taskId,
         taskStatus: existingTask.status,
-        reason: "Task is incomplete or has invalid finishReason" 
+        validationResult,
+        reason: "Task is invalid or failed - needs restart" 
       });
       
       // Archive the invalid task for debugging
       await this.taskManager.archiveInvalidTask(taskId, "Invalid task state - restarting");
+    } else if (existingTask && validationResult === 'running') {
+      // Task is currently running, let it continue
+      this.requestLogger.info("Found running task, connecting to existing stream", { 
+        taskId,
+        taskStatus: existingTask.status,
+        validationResult,
+        reason: "Task is currently running" 
+      });
     }
 
     // Get task status after potential archiving

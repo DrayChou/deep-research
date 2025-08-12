@@ -389,76 +389,93 @@ class BackgroundTaskManager {
 
   /**
    * 智能判断任务状态，决定是否可以直接返回缓存结果
+   * 返回值：
+   * - 'valid': 可以直接返回
+   * - 'running': 任务正在运行中 
+   * - 'invalid': 任务无效，需要归档重试
    */
-  isTaskValidForDirectReturn(taskId: string): boolean {
+  getTaskValidationResult(taskId: string): 'valid' | 'running' | 'invalid' {
     
     try {
       if (!this.db) {
         console.log(`Task ${taskId}: Database not available, cannot validate`);
-        return false;
+        return 'invalid';
       }
       
       const taskData = this.db.getTask(taskId);
       if (!taskData) {
         console.log(`Task ${taskId}: Not found in database`);
-        return false;
+        return 'invalid';
+      }
+      
+      // 检查任务是否正在运行
+      if (taskData.progress.status === 'running') {
+        console.log(`Task ${taskId}: Task is currently running, status: ${taskData.progress.status}, step: ${taskData.currentStep}`);
+        return 'running';
       }
       
       // 检查任务是否已完成
       if (taskData.progress.status !== 'completed') {
-        console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed`);
-        return false;
+        console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed - marking as invalid`);
+        return 'invalid';
       }
       
       // 检查是否到达了final-report步骤
       if (taskData.currentStep !== 'final-report') {
-        console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report`);
-        return false;
+        console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report - marking as invalid`);
+        return 'invalid';
       }
       
       // 检查final-report步骤是否正常完成
       if (taskData.stepStatus !== 'completed') {
-        console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed`);
-        return false;
+        console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed - marking as invalid`);
+        return 'invalid';
       }
       
       // 检查finishReason是否为正常的stop
       if (taskData.finishReason !== 'stop') {
-        console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop'`);
-        return false;
+        console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop' - marking as invalid`);
+        return 'invalid';
       }
       
       // 检查是否标记为有效完成
       if (!taskData.isValidComplete) {
-        console.log(`Task ${taskId}: Not marked as valid complete`);
-        return false;
+        console.log(`Task ${taskId}: Not marked as valid complete - marking as invalid`);
+        return 'invalid';
       }
       
       // 检查输出内容是否存在且有效
       if (!taskData.outputs || taskData.outputs.length === 0) {
-        console.log(`Task ${taskId}: No outputs found`);
-        return false;
+        console.log(`Task ${taskId}: No outputs found - marking as invalid`);
+        return 'invalid';
       }
       
-      // 检查是否包含有效的final-report内容
-      const hasValidFinalReport = taskData.outputs.some(output => {
-        const hasFinalReportTags = output.includes('<final-report>') && output.includes('</final-report>');
-        const hasSubstantialContent = output.length > 1000; // 至少1000字符表示有实质内容
-        return hasFinalReportTags && hasSubstantialContent;
-      });
+      // 检查是否包含有效的final-report内容 - 修复逻辑，检查整体内容而不是单个chunk
+      const allOutputContent = taskData.outputs.join('');
+      const hasStartTag = allOutputContent.includes('<final-report>');
+      const hasEndTag = allOutputContent.includes('</final-report>');
+      const hasSubstantialContent = allOutputContent.length > 1000; // 至少1000字符表示有实质内容
+      const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
       
       if (!hasValidFinalReport) {
-        console.log(`Task ${taskId}: No valid final-report content found`);
-        return false;
+        console.log(`Task ${taskId}: No valid final-report content found - marking as invalid`);
+        return 'invalid';
       }
       
       console.log(`Task ${taskId}: Valid for direct return`);
-      return true;
+      return 'valid';
       
     } catch (error) {
       console.error(`Error validating task ${taskId}:`, error);
-      return false;
+      return 'invalid';
     }
+  }
+
+  /**
+   * 向后兼容的方法
+   */
+  isTaskValidForDirectReturn(taskId: string): boolean {
+    return this.getTaskValidationResult(taskId) === 'valid';
   }
 
   getTaskOutput(taskId: string): string[] {
