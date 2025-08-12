@@ -134,16 +134,69 @@ export class SSELiveHandler {
         return null;
       }
 
-      // Model configuration
+      // Model configuration - Support comma-separated model arrays for fallback/retry
       const config = authResult.config || {};
       const modelConfig = getProviderModelFields(aiConfig.provider, config);
-      const thinkingModel = getValueFromSearchParams("thinkingModel") || modelConfig.thinkingModel || 'gpt-4o';
-      const taskModel = getValueFromSearchParams("taskModel") || modelConfig.networkingModel || 'gpt-4o';
+      
+      // Parse comma-separated models into arrays for intelligent fallback
+      const parseModelString = (modelStr: string | null): string[] => {
+        if (!modelStr || modelStr.trim() === '') return [];
+        return modelStr.split(',').map(model => model.trim()).filter(model => model.length > 0);
+      };
+      
+      // Merge URL params with JWT config: URL params get priority, JWT config becomes fallback
+      const mergeModelArrays = (urlParam: string | null, jwtConfig: string): string[] => {
+        const urlModels = parseModelString(urlParam);
+        const jwtModels = parseModelString(jwtConfig);
+        
+        // Use Set for efficient deduplication while maintaining order
+        const seen = new Set<string>();
+        const combined: string[] = [];
+        
+        // Add URL models first (highest priority)
+        urlModels.forEach(model => {
+          if (!seen.has(model)) {
+            seen.add(model);
+            combined.push(model);
+          }
+        });
+        
+        // Add JWT models as fallbacks (deduplicated)  
+        jwtModels.forEach(model => {
+          if (!seen.has(model)) {
+            seen.add(model);
+            combined.push(model);
+          }
+        });
+        
+        return combined.length > 0 ? combined : ['gpt-4o'];
+      };
+      
+      const thinkingModel = mergeModelArrays(
+        getValueFromSearchParams("thinkingModel"), 
+        modelConfig.thinkingModel || ''
+      );
+      const taskModel = mergeModelArrays(
+        getValueFromSearchParams("taskModel"), 
+        modelConfig.networkingModel || ''
+      );
 
       this.requestLogger.info('Configuration', {
         aiProvider: aiConfig.provider,
         searchProvider: searchConfig.searchProvider,
-        models: modelConfig
+        modelMerging: {
+          urlThinkingModel: getValueFromSearchParams("thinkingModel"),
+          urlTaskModel: getValueFromSearchParams("taskModel"),
+          jwtThinkingModel: modelConfig.thinkingModel,
+          jwtTaskModel: modelConfig.networkingModel,
+          mergedThinkingModel: `[${thinkingModel.join(', ')}]`,
+          mergedTaskModel: `[${taskModel.join(', ')}]`,
+          thinkingModelCount: thinkingModel.length,
+          taskModelCount: taskModel.length
+        },
+        thinkingModels: thinkingModel,
+        taskModels: taskModel,
+        originalModelConfig: modelConfig
       });
 
       return {
@@ -169,8 +222,8 @@ export class SSELiveHandler {
     const taskParams = {
       ...config.allSearchParams,
       aiProvider: config.aiConfig.provider,
-      thinkingModel: config.thinkingModel,
-      taskModel: config.taskModel,
+      thinkingModel: Array.isArray(config.thinkingModel) ? config.thinkingModel.join(',') : config.thinkingModel,
+      taskModel: Array.isArray(config.taskModel) ? config.taskModel.join(',') : config.taskModel,
       searchProvider: config.searchConfig.searchProvider,
       query: config.query,
       language: config.language,
@@ -221,7 +274,7 @@ export class SSELiveHandler {
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
         "Access-Control-Allow-Origin": "*",
-        "X-Model-Name": `${config.aiConfig.provider} (${config.thinkingModel}, ${config.taskModel})`,
+        "X-Model-Name": `${config.aiConfig.provider} (T:[${config.thinkingModel.join(',')}], Task:[${config.taskModel.join(',')}])`,
         "X-Search-Provider": config.searchConfig.searchProvider || "Not configured",
         "X-Request-ID": this.requestId,
         "X-Task-ID": taskId,
@@ -391,8 +444,8 @@ class SSEStreamHandler {
         baseURL: this.config.aiConfig.apiProxy,
         apiKey: processedApiKey,
         provider: this.config.aiConfig.provider,
-        thinkingModel: this.config.thinkingModel,
-        taskModel: this.config.taskModel,
+        thinkingModel: this.config.thinkingModel, // Now it's an array
+        taskModel: this.config.taskModel, // Now it's an array
       },
       searchProvider: {
         baseURL: this.config.searchConfig.apiProxy,
@@ -424,8 +477,8 @@ class SSEStreamHandler {
     return {
       ...this.config.allSearchParams,
       aiProvider: this.config.aiConfig.provider,
-      thinkingModel: this.config.thinkingModel,
-      taskModel: this.config.taskModel,
+      thinkingModel: Array.isArray(this.config.thinkingModel) ? this.config.thinkingModel.join(',') : this.config.thinkingModel,
+      taskModel: Array.isArray(this.config.taskModel) ? this.config.taskModel.join(',') : this.config.taskModel,
       searchProvider: this.config.searchConfig.searchProvider,
       query: this.config.query,
       language: this.config.language,

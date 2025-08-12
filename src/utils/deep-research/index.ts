@@ -48,8 +48,8 @@ export interface DeepResearchOptions {
     baseURL?: string;
     apiKey?: string;
     provider: string;
-    thinkingModel: string;
-    taskModel: string;
+    thinkingModel: string | string[]; // Support both single model and model array
+    taskModel: string | string[]; // Support both single model and model array
   };
   searchProvider: {
     baseURL?: string;
@@ -112,59 +112,139 @@ class DeepResearch {
     
     this.logger.info('DeepResearch initialized', {
       aiProvider: options.AIProvider.provider,
-      thinkingModel: options.AIProvider.thinkingModel,
-      taskModel: options.AIProvider.taskModel,
+      thinkingModel: Array.isArray(options.AIProvider.thinkingModel) 
+        ? `[${options.AIProvider.thinkingModel.join(', ')}]` 
+        : options.AIProvider.thinkingModel,
+      taskModel: Array.isArray(options.AIProvider.taskModel) 
+        ? `[${options.AIProvider.taskModel.join(', ')}]` 
+        : options.AIProvider.taskModel,
       searchProvider: options.searchProvider.provider,
       language: options.language,
       notificationEnabled: notificationConfig.enabled
     });
   }
 
-  async getThinkingModel() {
+  /**
+   * Convert model specification to array for unified processing
+   */
+  private getModelArray(modelSpec: string | string[]): string[] {
+    if (Array.isArray(modelSpec)) {
+      return modelSpec.filter(model => model && model.trim().length > 0);
+    }
+    return modelSpec && modelSpec.trim() ? [modelSpec.trim()] : [];
+  }
+
+  /**
+   * Get display string for model spec (for logging)
+   */
+  private getModelDisplayString(modelSpec: string | string[]): string {
+    if (Array.isArray(modelSpec)) {
+      return modelSpec.length > 1 ? `[${modelSpec.join(', ')}]` : modelSpec[0] || '';
+    }
+    return modelSpec || '';
+  }
+
+  /**
+   * Create AI provider with intelligent model fallback
+   * Tries models in sequence until one succeeds
+   */
+  private async createAIProviderWithFallback(
+    modelArray: string[], 
+    modelType: 'thinking' | 'task',
+    additionalConfig?: any
+  ): Promise<any> {
     const { AIProvider } = this.options;
     const AIProviderBaseOptions = pick(AIProvider, ["baseURL", "apiKey"]);
-    const config = {
-      provider: AIProvider.provider,
-      model: AIProvider.thinkingModel,
-      ...AIProviderBaseOptions,
-    };
+    
+    let lastError: Error | null = null;
+    
+    for (let i = 0; i < modelArray.length; i++) {
+      const model = modelArray[i];
+      const isLastAttempt = i === modelArray.length - 1;
+      
+      const config = {
+        provider: AIProvider.provider,
+        model,
+        ...additionalConfig,
+        ...AIProviderBaseOptions,
+      };
 
-    this.logger.debug('Getting thinking model', config);
+      this.logger.debug(`Attempting to create ${modelType} model ${i + 1}/${modelArray.length}`, {
+        model,
+        provider: AIProvider.provider,
+        isLastAttempt
+      });
 
-    try {
-      const model = await createAIProvider(config);
-      this.logger.info('Thinking model created successfully', { model: AIProvider.thinkingModel });
-      return model;
-    } catch (error) {
-      this.logger.error('Failed to create thinking model', error instanceof Error ? error : undefined, config);
-      throw error;
+      try {
+        const aiProvider = await createAIProvider(config);
+        
+        if (i > 0) {
+          // Successful fallback
+          this.logger.info(`${modelType} model fallback successful`, {
+            originalModel: modelArray[0],
+            fallbackModel: model,
+            attemptNumber: i + 1,
+            totalModels: modelArray.length
+          });
+        } else {
+          this.logger.info(`${modelType} model created successfully`, { model });
+        }
+        
+        return aiProvider;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        
+        this.logger.warn(`${modelType} model creation failed`, {
+          model,
+          provider: AIProvider.provider,
+          attemptNumber: i + 1,
+          totalModels: modelArray.length,
+          willRetryWithNext: !isLastAttempt,
+          error: lastError.message,
+          stack: lastError instanceof Error ? lastError.stack : undefined
+        });
+        
+        if (isLastAttempt) {
+          // All models failed
+          this.logger.error(`All ${modelType} models failed`, lastError, {
+            attemptedModels: modelArray,
+            provider: AIProvider.provider,
+            totalAttempts: modelArray.length
+          });
+          throw lastError;
+        }
+      }
     }
+    
+    // This should never be reached, but just in case
+    throw lastError || new Error(`Failed to create ${modelType} model`);
+  }
+
+  async getThinkingModel() {
+    const { AIProvider } = this.options;
+    const thinkingModels = this.getModelArray(AIProvider.thinkingModel);
+    
+    if (thinkingModels.length === 0) {
+      throw new Error('No thinking models configured');
+    }
+
+    return await this.createAIProviderWithFallback(thinkingModels, 'thinking');
   }
 
   async getTaskModel() {
     const { AIProvider } = this.options;
-    const AIProviderBaseOptions = pick(AIProvider, ["baseURL", "apiKey"]);
-    const config = {
-      provider: AIProvider.provider,
-      model: AIProvider.taskModel,
-      settings:
-        AIProvider.provider === "google" &&
-          isNetworkingModel(AIProvider.taskModel)
-          ? { useSearchGrounding: true }
-          : undefined,
-      ...AIProviderBaseOptions,
-    };
-
-    this.logger.debug('Getting task model', config);
-
-    try {
-      const model = await createAIProvider(config);
-      this.logger.info('Task model created successfully', { model: AIProvider.taskModel });
-      return model;
-    } catch (error) {
-      this.logger.error('Failed to create task model', error instanceof Error ? error : undefined, config);
-      throw error;
+    const taskModels = this.getModelArray(AIProvider.taskModel);
+    
+    if (taskModels.length === 0) {
+      throw new Error('No task models configured');
     }
+
+    // For task models, we need to check if Google networking models require special settings
+    const additionalConfig = AIProvider.provider === "google" ? {
+      settings: taskModels.some(model => isNetworkingModel(model)) ? { useSearchGrounding: true } : undefined
+    } : undefined;
+
+    return await this.createAIProviderWithFallback(taskModels, 'task', additionalConfig);
   }
 
   getResponseLanguagePrompt() {
@@ -260,16 +340,19 @@ class DeepResearch {
           }
         }
         
-        // 分析Token使用情况
+        // 分析Token使用情况 - Use first model for token analysis
+        const firstThinkingModel = Array.isArray(this.options.AIProvider.thinkingModel) 
+          ? this.options.AIProvider.thinkingModel[0] 
+          : this.options.AIProvider.thinkingModel;
         const tokenAnalysis = getTokenUsageAnalysis(
-          this.options.AIProvider.thinkingModel,
+          firstThinkingModel,
           null, // AI SDK可能不返回token信息
           null,
           systemPrompt + '\n\n' + enhancedPrompt
         );
         
         this.logger.logLLMCall('writeReportPlan',
-          { model: this.options.AIProvider.thinkingModel, attempt },
+          { model: this.getModelDisplayString(this.options.AIProvider.thinkingModel), attempt },
           { 
             promptLength: enhancedPrompt.length, 
             content: query,
@@ -313,7 +396,7 @@ class DeepResearch {
         if (error instanceof Error) {
           this.handleApiCreditError(error, {
             provider: this.options.AIProvider.provider,
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             operation: 'writeReportPlan',
             additionalInfo: {
               queryLength: query.length,
@@ -382,16 +465,19 @@ class DeepResearch {
 
         const duration = Date.now() - startTime;
         
-        // 分析Token使用情况
+        // 分析Token使用情况 - Use first model for token analysis  
+        const firstThinkingModel = Array.isArray(this.options.AIProvider.thinkingModel) 
+          ? this.options.AIProvider.thinkingModel[0] 
+          : this.options.AIProvider.thinkingModel;
         const tokenAnalysis = getTokenUsageAnalysis(
-          this.options.AIProvider.thinkingModel,
+          firstThinkingModel,
           null,
           null,
           systemPrompt + '\n\n' + enhancedPrompt
         );
         
         this.logger.logLLMCall('generateSERPQuery',
-          { model: this.options.AIProvider.thinkingModel, attempt },
+          { model: this.getModelDisplayString(this.options.AIProvider.thinkingModel), attempt },
           { 
             promptLength: enhancedPrompt.length, 
             reportPlanLength: reportPlan.length,
@@ -503,7 +589,7 @@ class DeepResearch {
           if (error instanceof Error) {
             this.handleApiCreditError(error, {
               provider: this.options.AIProvider.provider,
-              model: this.options.AIProvider.thinkingModel,
+              model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
               operation: 'generateSERPQuery',
               additionalInfo: {
                 reportPlanLength: reportPlan.length,
@@ -542,14 +628,15 @@ class DeepResearch {
       let sources: Source[] = [];
       let images: ImageSource[] = [];
       const { taskModel } = this.options.AIProvider;
+      const firstTaskModel = Array.isArray(taskModel) ? taskModel[0] : taskModel;
       const { provider = "model", maxResult = 5 } = this.options.searchProvider;
       if (provider === "model") {
         const getTools = async () => {
           // Enable OpenAI's built-in search tool
           if (
             provider === "model" &&
-            ["openai", "azure"].includes(taskModel) &&
-            taskModel.startsWith("gpt-4o")
+            ["openai", "azure"].includes(firstTaskModel) &&
+            firstTaskModel.startsWith("gpt-4o")
           ) {
             const { openai } = await import("@ai-sdk/openai");
             return {
@@ -564,7 +651,7 @@ class DeepResearch {
         };
         const getProviderOptions = () => {
           // Enable OpenRouter's built-in search tool
-          if (provider === "model" && taskModel === "openrouter") {
+          if (provider === "model" && firstTaskModel === "openrouter") {
             return {
               openrouter: {
                 plugins: [
@@ -756,14 +843,14 @@ class DeepResearch {
             query: item.query,
             researchGoal: item.researchGoal,
             sourcesCount: sources.length,
-            model: this.options.AIProvider.taskModel
+            model: this.getModelDisplayString(this.options.AIProvider.taskModel)
           });
           
           // 检测API欠费错误并发送通知（异步非阻塞）
           if (error instanceof Error) {
             this.handleApiCreditError(error, {
               provider: this.options.AIProvider.provider,
-              model: this.options.AIProvider.taskModel,
+              model: this.getModelDisplayString(this.options.AIProvider.taskModel),
               operation: 'runSearchTask',
               additionalInfo: {
                 query: item.query.substring(0, 100),
@@ -842,7 +929,7 @@ class DeepResearch {
         if (streamError instanceof Error) {
           this.handleApiCreditError(streamError, {
             provider: this.options.AIProvider.provider,
-            model: this.options.AIProvider.taskModel,
+            model: this.getModelDisplayString(this.options.AIProvider.taskModel),
             operation: 'runSearchTask_stream',
             additionalInfo: {
               query: item.query.substring(0, 100),
@@ -1042,7 +1129,7 @@ class DeepResearch {
           },
           modelConfig: {
             provider: this.options.AIProvider.provider,
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             baseURL: this.options.AIProvider.baseURL ? this.options.AIProvider.baseURL.substring(0, 50) + '...' : undefined,
             apiKeyPrefix: this.options.AIProvider.apiKey ? this.options.AIProvider.apiKey.substring(0, 8) + '...' : 'Not configured',
             apiKeySuffix: this.options.AIProvider.apiKey && this.options.AIProvider.apiKey.length > 8 ? '...' + this.options.AIProvider.apiKey.slice(-4) : undefined
@@ -1055,7 +1142,7 @@ class DeepResearch {
         this.logger.debug(`Creating thinking model for attempt ${attempt}`, {
           modelConfig: {
             provider: this.options.AIProvider.provider,
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             baseURL: this.options.AIProvider.baseURL
           },
           attempt
@@ -1076,7 +1163,7 @@ class DeepResearch {
         // 记录AI请求的详细参数
         this.logger.debug(`AI request details for attempt ${attempt}`, {
           request: {
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             systemPromptLength: systemPrompt.length,
             promptLength: enhancedPrompt.length,
             systemPromptPreview: systemPrompt.substring(0, 200) + '...',
@@ -1088,7 +1175,9 @@ class DeepResearch {
             attemptNumber: attempt
           },
           tokenAnalysis: getTokenUsageAnalysis(
-            this.options.AIProvider.thinkingModel, 
+            Array.isArray(this.options.AIProvider.thinkingModel) 
+              ? this.options.AIProvider.thinkingModel[0] 
+              : this.options.AIProvider.thinkingModel, 
             null, 
             null, 
             enhancedPrompt
@@ -1193,7 +1282,9 @@ class DeepResearch {
 
             // 使用Token监控器进行全面分析
             tokenAnalysis = tokenMonitor.monitorAIRequest({
-              modelName: this.options.AIProvider.thinkingModel,
+              modelName: Array.isArray(this.options.AIProvider.thinkingModel) 
+                ? this.options.AIProvider.thinkingModel[0] 
+                : this.options.AIProvider.thinkingModel,
               operation: 'writeFinalReport',
               promptText: enhancedPrompt,
               responseText: content,
@@ -1247,7 +1338,7 @@ class DeepResearch {
         // 记录 LLM 调用详情（包含Token分析）
         this.logger.logLLMCall('writeFinalReport',
           {
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             enableCitationImage,
             enableReferences,
             attempt
@@ -1488,20 +1579,20 @@ class DeepResearch {
               reasonForRetry: 'Quality check failed'
             },
             contentAnalysis: {
-              currentGeneratedLength: content.length,
+              currentGeneratedLength: finalReportResult.finalReport.length,
               accumulatedLength: accumulatedContent.length,
               expectedMinimum: 500,
               actualTitle: title,
               titleLength: title.length,
-              hasMarkdownStructure: /#{1,6}\s/.test(content),
-              estimatedReadingTime: Math.ceil(content.split(/\s+/).length / 200) // 200 words per minute
+              hasMarkdownStructure: /#{1,6}\s/.test(finalReportResult.finalReport),
+              estimatedReadingTime: Math.ceil(finalReportResult.finalReport.split(/\s+/).length / 200) // 200 words per minute
             }
           }, true);
           continue; // 重试
         }
 
         this.logger.logStep('writeFinalReport', 'end', {
-          contentLength: content.length,
+          contentLength: finalReportResult.finalReport.length,
           accumulatedContentLength: accumulatedContent.length,
           title,
           duration,
@@ -1525,20 +1616,15 @@ class DeepResearch {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(`Unknown error on attempt ${attempt}`);
         
-        // 在异常情况下也累积已生成的内容（如果有的话）
-        if (content && content.trim().length > 0) {
-          if (accumulatedContent.length > 0) {
-            accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
-          }
-          accumulatedContent += content;
-          
-          this.logger.debug(`Accumulated content from failed attempt ${attempt} (exception)`, {
-            currentContentLength: content.length,
-            accumulatedContentLength: accumulatedContent.length,
+        // Note: In catch block, we don't have access to generated content
+        // The content variable is only available in the try block scope
+        this.logger.debug(`Attempt ${attempt} failed with exception`, {
             error: lastError.message,
+            accumulatedContentLength: accumulatedContent.length,
+            attempt,
+            maxRetries,
             willRetry: attempt < maxRetries
           });
-        }
         
         // 检查是否为网络或API相关的错误
         const isNetworkError = lastError.message.toLowerCase().includes('network') || 
@@ -1585,7 +1671,7 @@ class DeepResearch {
         if (lastError instanceof Error) {
           this.handleApiCreditError(lastError, {
             provider: this.options.AIProvider.provider,
-            model: this.options.AIProvider.thinkingModel,
+            model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
             operation: 'writeFinalReport',
             additionalInfo: {
               attempt,
@@ -1635,7 +1721,7 @@ class DeepResearch {
     if (lastError instanceof Error) {
       this.handleApiCreditError(lastError, {
         provider: this.options.AIProvider.provider,
-        model: this.options.AIProvider.thinkingModel,
+        model: this.getModelDisplayString(this.options.AIProvider.thinkingModel),
         operation: 'writeFinalReport',
         additionalInfo: {
           finalFailure: true,
@@ -1918,7 +2004,7 @@ ${accumulatedContent}
       if (err instanceof Error) {
         this.handleApiCreditError(err, {
           provider: this.options.AIProvider.provider,
-          model: `${this.options.AIProvider.thinkingModel}/${this.options.AIProvider.taskModel}`,
+          model: `${this.getModelDisplayString(this.options.AIProvider.thinkingModel)}/${this.getModelDisplayString(this.options.AIProvider.taskModel)}`,
           operation: 'deepResearch',
           additionalInfo: {
             query: query.substring(0, 200),

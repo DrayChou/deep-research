@@ -69,3 +69,4 @@ test_*.mjs
 *.sqlite3
 debug_*.js
 debug_*.mjs
+logs/*.txt

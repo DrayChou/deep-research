@@ -652,5 +652,5 @@ class TaskDatabase implements DatabaseInterface {
 }
 
 // 导出接口和类型
-export { TaskData, TaskStatusData };
+export type { TaskData, TaskStatusData };
 export default TaskDatabase;

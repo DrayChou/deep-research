@@ -648,7 +648,13 @@ class BackgroundTaskManager {
         const percentage = this.calculateProgress(data.step, data.status);
         
         // 准备状态数据
-        const statusData = {
+        const statusData: {
+          currentStep: any;
+          stepStatus: string;
+          lastStepCompletedAt: string | undefined;
+          finishReason?: string;
+          isValidComplete?: boolean;
+        } = {
           currentStep: data.step,
           stepStatus: data.status === 'end' ? 'completed' : 'running',
           lastStepCompletedAt: data.status === 'end' ? new Date().toISOString() : undefined
