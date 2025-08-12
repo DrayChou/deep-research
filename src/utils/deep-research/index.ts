@@ -928,6 +928,11 @@ class DeepResearch {
     let lastError: Error | null = null;
     const overallStartTime = Date.now();
     
+    // 用于累积所有重试的内容，确保不丢失任何内容
+    let accumulatedContent = "";
+    let accumulatedReasoningContent = "";
+    let finalResult: FinalReportResult | null = null;
+    
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
       
@@ -1056,13 +1061,16 @@ class DeepResearch {
 
         // 添加详细的报告生成开始日志
         this.logger.info(`[REPORT-SEND-START] Starting to send final report to client - Attempt ${attempt}`, {
-          reportLength: 0,
-          reportPreview: "<final-report>",
+          reportLength: accumulatedContent.length,
+          reportPreview: attempt === 1 ? "<final-report>" : "继续重试生成...",
           hasEndTag: false,
           timestamp: new Date().toISOString(),
-          attempt
+          attempt,
+          isRetry: attempt > 1,
+          accumulatedContentLength: accumulatedContent.length
         });
         
+        // 每次尝试都发送开始标签，确保每次都是完整的final-report标签对
         this.onMessage("message", { type: "text", text: "<final-report>\n" });
 
         for await (const part of result.fullStream) {
@@ -1085,7 +1093,7 @@ class DeepResearch {
                 if (streamChunks % 50 === 0) { // 每50个chunk记录一次
                   this.logger.debug(`[REPORT-CONTENT-CHUNK] Sending content chunk ${streamChunks}`, {
                     chunkLength: data.length,
-                    totalContentLength: content.length,
+                    currentContentLength: content.length,
                     chunkPreview: data.substring(0, 100),
                     attempt
                   });
@@ -1308,6 +1316,22 @@ class DeepResearch {
             }
           }
           
+          // 在重试前，累积当前尝试产生的内容（即使不完整也保留）
+          if (content.trim().length > 0) {
+            if (accumulatedContent.length > 0) {
+              accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
+            }
+            accumulatedContent += content;
+            accumulatedReasoningContent += reasoningContent;
+            
+            this.logger.debug(`Accumulated content from failed attempt ${attempt}`, {
+              currentContentLength: content.length,
+              accumulatedContentLength: accumulatedContent.length,
+              finishReason: currentFinishReason,
+              willRetry: true
+            });
+          }
+
           // 应用重试延迟
           if (retryStrategy.delay > 0) {
             this.logger.debug(`Applying retry delay: ${retryStrategy.delay}ms`, {
@@ -1377,11 +1401,30 @@ class DeepResearch {
           return 'Deep Research Analysis Report';
         };
         
+        // 在成功生成内容后，累积到全局内容中（用于数据库存储）
+        if (content.trim().length > 0) {
+          if (accumulatedContent.length > 0) {
+            accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
+          }
+          accumulatedContent += content;
+          accumulatedReasoningContent += reasoningContent;
+        }
+
+        // 创建最终报告结果，使用当前成功的内容（用于客户端显示）
         const title = extractTitleFromContent(content);
 
         const finalReportResult: FinalReportResult = {
           title,
-          finalReport: content,
+          finalReport: content, // 使用当前成功的内容
+          learnings,
+          sources,
+          images,
+        };
+
+        // 同时保存累积内容到类的实例变量，供数据库存储使用
+        finalResult = {
+          title,
+          finalReport: accumulatedContent, // 数据库存储使用累积内容
           learnings,
           sources,
           images,
@@ -1404,7 +1447,8 @@ class DeepResearch {
               reasonForRetry: 'Quality check failed'
             },
             contentAnalysis: {
-              generatedLength: content.length,
+              currentGeneratedLength: content.length,
+              accumulatedLength: accumulatedContent.length,
               expectedMinimum: 500,
               actualTitle: title,
               titleLength: title.length,
@@ -1417,6 +1461,7 @@ class DeepResearch {
 
         this.logger.logStep('writeFinalReport', 'end', {
           contentLength: content.length,
+          accumulatedContentLength: accumulatedContent.length,
           title,
           duration,
           qualityCheck,
@@ -1435,6 +1480,22 @@ class DeepResearch {
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(`Unknown error on attempt ${attempt}`);
+        
+        // 在异常情况下也累积已生成的内容（如果有的话）
+        if (content && content.trim().length > 0) {
+          if (accumulatedContent.length > 0) {
+            accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
+          }
+          accumulatedContent += content;
+          accumulatedReasoningContent += reasoningContent;
+          
+          this.logger.debug(`Accumulated content from failed attempt ${attempt} (exception)`, {
+            currentContentLength: content.length,
+            accumulatedContentLength: accumulatedContent.length,
+            error: lastError.message,
+            willRetry: attempt < maxRetries
+          });
+        }
         
         // 检查是否为网络或API相关的错误
         const isNetworkError = lastError.message.toLowerCase().includes('network') || 
@@ -1549,10 +1610,8 @@ class DeepResearch {
       });
     }
 
-    // 返回一个包含错误信息的报告，而不是抛出异常
-    const errorReportResult: FinalReportResult = {
-      title: "Error: Failed to Generate Report",
-      finalReport: `# Final Report Generation Failed
+    // 返回一个包含错误信息的报告，如果有累积内容则包含进去
+    let finalReportContent = `# Final Report Generation Failed
 
 ## Error Details
 - **Error Message**: ${lastError?.message || 'Unknown error'}
@@ -1565,6 +1624,7 @@ class DeepResearch {
 - Total Learning Content: ${learnings.reduce((sum, learning) => sum + learning.length, 0)} characters
 - Sources Available: ${sources.length}
 - Images Available: ${images.length}
+- **Accumulated Content**: ${accumulatedContent.length} characters from attempts
 
 ## Possible Causes
 1. Prompt too long (${finalPrompt.length} chars) - consider reducing input content
@@ -1578,7 +1638,28 @@ class DeepResearch {
 3. Verify API keys and model availability
 4. Consider using a different AI model
 
-*This error report was generated automatically after ${maxRetries} failed attempts.*`,
+*This error report was generated automatically after ${maxRetries} failed attempts.*`;
+
+    // 如果有累积的内容，将其添加到错误报告中
+    if (accumulatedContent.trim().length > 0) {
+      finalReportContent += `
+
+## Partial Content Generated During Attempts
+
+The following content was generated during the ${maxRetries} attempts but did not complete successfully:
+
+---
+
+${accumulatedContent}
+
+---
+
+*End of partial content*`;
+    }
+
+    const errorReportResult: FinalReportResult = {
+      title: accumulatedContent.length > 100 ? "Partial Report Generated" : "Error: Failed to Generate Report",
+      finalReport: finalReportContent,
       learnings,
       sources,
       images,
