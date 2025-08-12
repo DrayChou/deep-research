@@ -695,46 +695,38 @@ class BackgroundTaskManager {
   performHealthCheck(): {
     status: 'healthy' | 'warning' | 'critical';
     issues: string[];
-    recommendations: string[];
     stats: ReturnType<typeof BackgroundTaskManager.prototype.getStats>;
   } {
     const stats = this.getStats();
     const issues: string[] = [];
-    const recommendations: string[] = [];
 
     // Memory checks
     const memoryUsagePercent = (stats.memoryUsage.heapUsed / this.maxMemoryUsage) * 100;
     if (memoryUsagePercent > 90) {
       issues.push('Memory usage critically high');
-      recommendations.push('Consider restarting the service or reducing task retention period');
     } else if (memoryUsagePercent > 80) {
       issues.push('Memory usage high');
-      recommendations.push('Monitor memory usage and consider cleanup');
     }
 
     // Task count checks
     if (stats.totalTasks > this.maxTasks * 0.9) {
       issues.push('Task count approaching limit');
-      recommendations.push('Consider increasing maxTasks or reducing retention period');
     }
 
     // Connection checks
     if (stats.totalConnections > this.maxTasks * 1.5) {
       issues.push('High number of active connections');
-      recommendations.push('Monitor connection patterns and consider connection pooling');
     }
 
     // Failed task checks
     const failedTaskRate = stats.failedTasks / Math.max(stats.totalTasks, 1);
     if (failedTaskRate > 0.1) {
       issues.push('High task failure rate');
-      recommendations.push('Review error logs and task configurations');
     }
 
     return {
       status: stats.health,
       issues,
-      recommendations,
       stats
     };
   }

@@ -148,16 +148,10 @@ export class NotificationService {
   async sendApiCreditAlert(provider: string, error: string, additionalInfo?: Record<string, any>): Promise<NotificationResult[]> {
     const message: NotificationMessage = {
       title: `API 余额不足警告 - ${provider}`,
-      content: `API 提供商 ${provider} 余额不足，请及时充值。
+      content: `API 提供商 ${provider} 余额不足。
 
 错误详情：
-${error}
-
-建议操作：
-1. 检查 ${provider} 账户余额
-2. 及时充值或调整使用量
-3. 考虑配置备用 API Key
-4. 检查是否有异常消耗`,
+${error}`,
       level: 'critical',
       source: 'Deep Research API Monitor',
       tags: ['api-credit', 'urgent', provider.toLowerCase()],
@@ -183,16 +177,10 @@ ${error}
     
     const message: NotificationMessage = {
       title: `API 余额不足警告 - ${provider}`,
-      content: `API 提供商 ${provider} 余额不足，请及时充值。
+      content: `API 提供商 ${provider} 余额不足。
 
 错误详情：
-${error}
-
-建议操作：
-1. 检查 ${provider} 账户余额
-2. 及时充值或调整使用量
-3. 考虑配置备用 API Key
-4. 检查是否有异常消耗`,
+${error}`,
       level: 'critical',
       source: 'Deep Research API Monitor',
       tags: ['api-credit', 'urgent', provider.toLowerCase()],

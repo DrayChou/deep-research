@@ -71,21 +71,17 @@ class TokenMonitor {
    */
   private checkForTokenIssues(config: TokenMonitorConfig, analysis: any) {
     const issues: string[] = [];
-    const recommendations: string[] = [];
 
     // 1. 检查上下文窗口使用率
     if (analysis.utilization.contextWindow > 90) {
       issues.push(`Context window utilization is ${analysis.utilization.contextWindow}% - very high`);
-      recommendations.push('Consider reducing input content length or using a model with larger context window');
     } else if (analysis.utilization.contextWindow > 80) {
       issues.push(`Context window utilization is ${analysis.utilization.contextWindow}% - approaching limit`);
-      recommendations.push('Monitor for potential truncation issues');
     }
 
     // 2. 检查输出Token使用率
     if (analysis.utilization.outputTokens > 95) {
       issues.push(`Output token utilization is ${analysis.utilization.outputTokens}% - likely truncated`);
-      recommendations.push('Use a model with higher output token limit or split the task');
     }
 
     // 3. 检查finish_reason异常 - 扩展覆盖所有需要重试的finishReason
@@ -113,37 +109,17 @@ class TokenMonitor {
     if (config.finishReason && problematicReasons[config.finishReason]) {
       const description = problematicReasons[config.finishReason];
       issues.push(`Finish reason: ${config.finishReason} - ${description}`);
-      
-      // 根据不同类型提供针对性建议
-      if (['length', 'max_tokens', 'MAX_TOKENS'].includes(config.finishReason)) {
-        recommendations.push('Increase max_tokens parameter or use model with higher token limit');
-        recommendations.push('Consider splitting the task into smaller parts');
-      } else if (['unknown', 'error', 'OTHER', 'FINISH_REASON_UNSPECIFIED'].includes(config.finishReason)) {
-        recommendations.push('Retry with exponential backoff - likely transient AI service issue');
-        recommendations.push('Check AI provider status and model availability');
-        recommendations.push('Consider using backup AI provider if issue persists');
-      } else if (['content-filter', 'content_filter', 'SAFETY', 'PROHIBITED_CONTENT', 'refusal'].includes(config.finishReason)) {
-        recommendations.push('Adjust prompt to comply with content policy');
-        recommendations.push('Use more educational/factual language');
-        recommendations.push('Retry once with modified prompt');
-      } else if (['RECITATION', 'BLOCKLIST', 'SPII'].includes(config.finishReason)) {
-        recommendations.push('Avoid direct quotes and sensitive information');
-        recommendations.push('Use paraphrasing and general terminology');
-        recommendations.push('Retry with content modifications');
-      }
     }
 
     // 4. 检查响应长度异常
     const responseLength = config.responseText?.length || 0;
     if (responseLength < 1000 && config.operation === 'writeFinalReport') {
       issues.push(`Response suspiciously short for ${config.operation}: ${responseLength} characters`);
-      recommendations.push('Verify AI response completeness and check for early termination');
     }
 
     // 5. 检查Token数据缺失
     if (!config.usage?.promptTokens && !config.usage?.completionTokens) {
       issues.push('Token usage data not available from AI provider');
-      recommendations.push('Consider using provider that returns detailed token usage information');
     }
 
     // 如果发现问题，发出警告
@@ -152,7 +128,6 @@ class TokenMonitor {
         model: config.modelName,
         operation: config.operation,
         issues,
-        recommendations,
         tokenAnalysis: {
           contextUtilization: analysis.utilization.contextWindow + '%',
           outputUtilization: analysis.utilization.outputTokens + '%',
@@ -182,7 +157,6 @@ class TokenMonitor {
           issue.includes('truncated') || 
           issue.includes('unknown')
         ),
-        urgentRecommendations: recommendations,
         tokenAnalysis: analysis,
         responseInfo: {
           finishReason: config.finishReason,
@@ -207,8 +181,7 @@ class TokenMonitor {
         highUtilizationRequests: 0
       },
       models: {} as any,
-      operations: {} as any,
-      recommendations: [] as string[]
+      operations: {} as any
     };
 
     configs.forEach(config => {

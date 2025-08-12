@@ -1550,14 +1550,7 @@ class DeepResearch {
           !this.options.AIProvider.apiKey ? 'Missing API key' : null,
           lastError?.message.toLowerCase().includes('rate limit') ? 'Rate limiting' : null,
           lastError?.message.toLowerCase().includes('network') ? 'Network issues' : null
-        ].filter(Boolean),
-        recommendedActions: [
-          'Check API key configuration',
-          'Verify network connectivity',
-          'Try reducing input content length',
-          'Check API provider status',
-          'Consider using different model'
-        ]
+        ].filter(Boolean)
       }
     }, true);
 
