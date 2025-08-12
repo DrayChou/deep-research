@@ -30,6 +30,11 @@ const MODEL_LIMITS: Record<string, ModelLimits> = {
     maxOutputTokens: 8192,
     provider: 'google'
   },
+  'gemini-2.5-flash': {
+    contextWindow: 1048576, // 1M tokens
+    maxOutputTokens: 8192,
+    provider: 'google'
+  },
   
   // OpenAI Models
   'gpt-4': {

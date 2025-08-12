@@ -1209,64 +1209,37 @@ class DeepResearch {
           duration
         );
 
-        // 智能重试决策函数
+        // 简化的重试决策函数 - 只关注finishReason异常状态
         const getRetryStrategy = (finishReason: string | undefined, contentLength: number, attempt: number) => {
-          // Token限制类问题 - 立即重试，调整配置
+          // 异常的finishReason直接重试
+          const abnormalReasons = ['unknown', 'error'];
+          if (finishReason && abnormalReasons.includes(finishReason)) {
+            return {
+              shouldRetry: true,
+              delay: Math.min(1000 * Math.pow(2, attempt), 8000), // 指数退避，最长8秒
+              adjustPrompt: false,
+              reason: `Abnormal finish reason: ${finishReason}`,
+              priority: 'high'
+            };
+          }
+          
+          // Token限制 - 重试但调整配置
           const tokenLimitReasons = ['length', 'max_tokens', 'MAX_TOKENS'];
           if (finishReason && tokenLimitReasons.includes(finishReason)) {
             return {
               shouldRetry: true,
-              delay: 500, // 快速重试，问题在配置不在服务
+              delay: 500,
               adjustPrompt: true,
               reason: `Token limit reached: ${finishReason}`,
               priority: 'high'
             };
           }
           
-          // 内容过滤类问题 - 限制重试次数，调整prompt
-          const contentFilterReasons = [
-            'content-filter', 'content_filter', 'SAFETY', 'PROHIBITED_CONTENT',
-            'RECITATION', 'BLOCKLIST', 'refusal', 'SPII'
-          ];
-          if (finishReason && contentFilterReasons.includes(finishReason) && attempt < 2) {
-            return {
-              shouldRetry: true,
-              delay: 1000 * attempt, // 渐进延迟
-              adjustPrompt: true,
-              reason: `Content filtered: ${finishReason}`,
-              priority: 'medium'
-            };
-          }
-          
-          // 服务异常类问题 - 指数退避重试
-          const serviceErrorReasons = [
-            'unknown', 'error', 'OTHER', 'FINISH_REASON_UNSPECIFIED', 'null'
-          ];
-          if (finishReason && serviceErrorReasons.includes(finishReason)) {
-            return {
-              shouldRetry: true,
-              delay: Math.min(1000 * Math.pow(2, attempt), 30000), // 指数退避，最长30秒
-              adjustPrompt: false,
-              reason: `Service issue detected: ${finishReason}`,
-              priority: 'high'
-            };
-          }
-          
-          // 内容长度检查
-          if (!content || contentLength < 100) {
-            return {
-              shouldRetry: true,
-              delay: 1000 * attempt,
-              adjustPrompt: true,
-              reason: `Content too short: ${contentLength} chars`,
-              priority: 'high'
-            };
-          }
-          
+          // 其他情况不重试（包括content_filter, stop等）
           return {
             shouldRetry: false,
             delay: 0,
-            reason: `No retry needed for finishReason: ${finishReason}`,
+            reason: `Normal finish reason: ${finishReason}`,
             priority: 'none'
           };
         };
