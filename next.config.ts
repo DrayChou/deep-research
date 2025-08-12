@@ -45,10 +45,6 @@ export default async function Config(phase: string) {
     experimental: {
       reactCompiler: true,
     },
-    // 禁用Next.js遥测
-    telemetry: {
-      disabled: true,
-    },
     env: {
       NEXT_PUBLIC_VERSION: pkg.version,
     },
