@@ -328,7 +328,7 @@ class BackgroundTaskManager {
     }
   }
 
-  private async saveTaskToDatabase(taskId: string): Promise<void> {
+  private async saveTaskToDatabase(taskId: string, statusData?: any): Promise<void> {
     const context = createErrorContext('save-task-to-database', taskId);
     
     await withErrorRecovery(async () => {
@@ -341,7 +341,11 @@ class BackgroundTaskManager {
       const requestParams = this.taskParams.get(taskId);
       
       if (task && requestParams) {
-        this.db.saveTask(taskId, task, outputs, requestParams);
+        if (statusData && 'saveTaskWithStatus' in this.db) {
+          this.db.saveTaskWithStatus(taskId, task, outputs, requestParams, statusData);
+        } else {
+          this.db.saveTask(taskId, task, outputs, requestParams);
+        }
       }
     }, context, async () => {
       // Fallback: Log to console only
@@ -383,8 +387,111 @@ class BackgroundTaskManager {
     return this.tasks.get(taskId) || null;
   }
 
+  /**
+   * 智能判断任务状态，决定是否可以直接返回缓存结果
+   */
+  isTaskValidForDirectReturn(taskId: string): boolean {
+    
+    try {
+      if (!this.db) {
+        console.log(`Task ${taskId}: Database not available, cannot validate`);
+        return false;
+      }
+      
+      const taskData = this.db.getTask(taskId);
+      if (!taskData) {
+        console.log(`Task ${taskId}: Not found in database`);
+        return false;
+      }
+      
+      // 检查任务是否已完成
+      if (taskData.progress.status !== 'completed') {
+        console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed`);
+        return false;
+      }
+      
+      // 检查是否到达了final-report步骤
+      if (taskData.currentStep !== 'final-report') {
+        console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report`);
+        return false;
+      }
+      
+      // 检查final-report步骤是否正常完成
+      if (taskData.stepStatus !== 'completed') {
+        console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed`);
+        return false;
+      }
+      
+      // 检查finishReason是否为正常的stop
+      if (taskData.finishReason !== 'stop') {
+        console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop'`);
+        return false;
+      }
+      
+      // 检查是否标记为有效完成
+      if (!taskData.isValidComplete) {
+        console.log(`Task ${taskId}: Not marked as valid complete`);
+        return false;
+      }
+      
+      // 检查输出内容是否存在且有效
+      if (!taskData.outputs || taskData.outputs.length === 0) {
+        console.log(`Task ${taskId}: No outputs found`);
+        return false;
+      }
+      
+      // 检查是否包含有效的final-report内容
+      const hasValidFinalReport = taskData.outputs.some(output => {
+        const hasFinalReportTags = output.includes('<final-report>') && output.includes('</final-report>');
+        const hasSubstantialContent = output.length > 1000; // 至少1000字符表示有实质内容
+        return hasFinalReportTags && hasSubstantialContent;
+      });
+      
+      if (!hasValidFinalReport) {
+        console.log(`Task ${taskId}: No valid final-report content found`);
+        return false;
+      }
+      
+      console.log(`Task ${taskId}: Valid for direct return`);
+      return true;
+      
+    } catch (error) {
+      console.error(`Error validating task ${taskId}:`, error);
+      return false;
+    }
+  }
+
   getTaskOutput(taskId: string): string[] {
     return this.taskOutputs.get(taskId) || [];
+  }
+
+  /**
+   * 归档无效任务，为重新执行做准备
+   */
+  async archiveInvalidTask(taskId: string, reason: string): Promise<void> {
+    const context = createErrorContext('archive-invalid-task', taskId);
+    
+    await withErrorRecovery(async () => {
+      if (!this.db) {
+        console.warn(`Cannot archive task ${taskId}: Database not available`);
+        return;
+      }
+      
+      // 归档数据库中的任务（重命名为带时间戳的ID）
+      this.db.archiveTask(taskId);
+      
+      // 清理内存中的任务状态
+      this.tasks.delete(taskId);
+      this.taskOutputs.delete(taskId);
+      this.taskParams.delete(taskId);
+      this.runningTasks.delete(taskId);
+      this.clientConnections.delete(taskId);
+      
+      console.log(`Task ${taskId} archived due to: ${reason}`);
+      
+    }, context, async () => {
+      console.error(`Failed to archive task ${taskId}, continuing without archiving`);
+    });
   }
 
   setTaskParams(taskId: string, params: any): void {
@@ -522,16 +629,45 @@ class BackgroundTaskManager {
         });
       } else if (event === "progress") {
         const percentage = this.calculateProgress(data.step, data.status);
+        
+        // 准备状态数据
+        const statusData = {
+          currentStep: data.step,
+          stepStatus: data.status === 'end' ? 'completed' : 'running',
+          lastStepCompletedAt: data.status === 'end' ? new Date().toISOString() : undefined
+        };
+        
+        // 如果是最终报告完成且有结果数据，提取finishReason
+        if (data.step === 'final-report' && data.status === 'end' && data.data?.finishReason) {
+          statusData.finishReason = data.data.finishReason;
+          statusData.isValidComplete = data.data.finishReason === 'stop';
+        }
+        
         await this.updateTaskProgress(taskId, {
           step: data.step,
           percentage,
           status: 'running'
         });
+        
+        // 保存状态信息到数据库
+        await this.saveTaskToDatabase(taskId, statusData);
+        
       } else if (event === "error") {
+        const statusData = {
+          currentStep: this.tasks.get(taskId)?.step || 'unknown',
+          stepStatus: 'failed',
+          finishReason: 'error',
+          isValidComplete: false,
+          lastStepCompletedAt: new Date().toISOString()
+        };
+        
         await this.updateTaskProgress(taskId, {
           status: 'failed',
           error: data.message || 'Unknown error'
         });
+        
+        // 保存错误状态
+        await this.saveTaskToDatabase(taskId, statusData);
       }
     };
 

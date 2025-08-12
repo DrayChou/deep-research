@@ -47,12 +47,30 @@ export class SSELiveHandler {
       return this.createErrorResponse('Configuration error', 500);
     }
 
-    // Task management
+    // Task management with intelligent retry logic
     const taskId = this.generateTaskId(config);
     const existingTask = this.taskManager.getTask(taskId);
 
+    // Check if existing task is valid for direct return
+    const isValidForDirectReturn = this.taskManager.isTaskValidForDirectReturn(taskId);
+    
+    if (existingTask && !isValidForDirectReturn) {
+      // Task exists but is not valid (incomplete, failed, or has invalid finishReason)
+      this.requestLogger.info("Found invalid task, archiving and restarting", { 
+        taskId,
+        taskStatus: existingTask.status,
+        reason: "Task is incomplete or has invalid finishReason" 
+      });
+      
+      // Archive the invalid task for debugging
+      await this.taskManager.archiveInvalidTask(taskId, "Invalid task state - restarting");
+    }
+
+    // Get task status after potential archiving
+    const finalExistingTask = this.taskManager.getTask(taskId);
+
     // Create SSE stream
-    const stream = this.createSSEStream(taskId, existingTask, config);
+    const stream = this.createSSEStream(taskId, finalExistingTask, config);
     
     return this.createSSEResponse(stream, config);
   }

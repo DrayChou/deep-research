@@ -42,7 +42,8 @@
       "Bash(npx next build)",
       "Bash(docker build:*)",
       "Bash(./test-docker-build.sh:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": []
   }

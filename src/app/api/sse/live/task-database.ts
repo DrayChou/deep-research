@@ -51,19 +51,36 @@ interface TaskData {
   requestParams: TaskRequestParams;
   createdAt: string;
   updatedAt: string;
+  // 任务状态跟踪字段
+  currentStep?: string; // 当前执行到的步骤：'report-plan' | 'serp-query' | 'search' | 'final-report'
+  stepStatus?: string; // 步骤状态：'running' | 'completed' | 'failed'
+  finishReason?: string; // 最终报告的完成原因：'stop' | 'length' | 'unknown' | 'error' 等
+  isValidComplete?: boolean; // 是否是有效的完成状态
+  lastStepCompletedAt?: string; // 最后一个步骤完成时间
 }
 
 // 数据库抽象接口
 interface DatabaseInterface {
   saveTask(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams): void;
+  saveTaskWithStatus(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams, statusData: TaskStatusData): void;
   getTask(taskId: string): TaskData | null;
   getAllTasks(): TaskData[];
   deleteTask(taskId: string): void;
+  archiveTask(taskId: string): void; // 归档任务（添加废弃时间戳重命名）
   getTaskStats(): { total: number; running: number; completed: number; failed: number };
   getTasksByStatus(status: 'running' | 'paused' | 'completed' | 'failed'): TaskData[];
   healthCheck(): { status: 'ok' | 'error'; message: string };
   cleanupOldTasks(daysToKeep: number): number;
   close(): void;
+}
+
+// 任务状态数据接口
+interface TaskStatusData {
+  currentStep?: string;
+  stepStatus?: string;
+  finishReason?: string;
+  isValidComplete?: boolean;
+  lastStepCompletedAt?: string;
 }
 
 /**
@@ -204,26 +221,47 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
 
   private migrateSchema(): void {
     try {
-      // 检查是否存在request_params字段
       const tableInfo = this.db.prepare("PRAGMA table_info(tasks)").all();
-      const hasRequestParams = tableInfo.some((column: any) => column.name === 'request_params');
+      const existingColumns = tableInfo.map((column: any) => column.name);
       
-      if (!hasRequestParams) {
-        console.log('Migrating database schema: adding request_params column...');
-        
-        // 添加新字段，使用默认的空JSON对象
-        this.db.exec(`
-          ALTER TABLE tasks ADD COLUMN request_params TEXT DEFAULT '{}';
-        `);
-        
-        // 为现有记录设置默认的请求参数
+      // 定义需要的新字段及其默认值
+      const requiredColumns = [
+        { name: 'request_params', type: 'TEXT', default: "'{}'" },
+        { name: 'current_step', type: 'TEXT', default: 'NULL' },
+        { name: 'step_status', type: 'TEXT', default: 'NULL' },
+        { name: 'finish_reason', type: 'TEXT', default: 'NULL' },
+        { name: 'is_valid_complete', type: 'INTEGER', default: '0' }, // 0 = false, 1 = true
+        { name: 'last_step_completed_at', type: 'TEXT', default: 'NULL' }
+      ];
+      
+      let migrationsPerformed = 0;
+      
+      // 检查并添加缺少的字段
+      for (const column of requiredColumns) {
+        if (!existingColumns.includes(column.name)) {
+          console.log(`Adding database column: ${column.name}`);
+          
+          this.db.exec(`
+            ALTER TABLE tasks ADD COLUMN ${column.name} ${column.type} DEFAULT ${column.default};
+          `);
+          
+          migrationsPerformed++;
+        }
+      }
+      
+      // 为现有记录设置默认的request_params（如果是新添加的）
+      if (!existingColumns.includes('request_params')) {
         this.db.prepare(`
           UPDATE tasks 
           SET request_params = json('{"query":"","language":"zh-CN","aiProvider":"unknown","thinkingModel":"unknown","taskModel":"unknown","searchProvider":"unknown","maxResult":50,"enableCitationImage":true,"enableReferences":true}')
-          WHERE request_params = '{}' OR request_params IS NULL
+          WHERE request_params IS NULL OR request_params = '{}'
         `).run();
-        
-        console.log('✓ Database schema migration completed');
+      }
+      
+      if (migrationsPerformed > 0) {
+        console.log(`✓ Database schema migration completed: ${migrationsPerformed} columns added`);
+      } else {
+        console.log('✓ Database schema is up to date');
       }
     } catch (error) {
       console.error('Schema migration failed:', error);
@@ -232,13 +270,20 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
   }
 
   saveTask(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams): void {
+    this.saveTaskWithStatus(taskId, progress, outputs, requestParams, {});
+  }
+
+  saveTaskWithStatus(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams, statusData: TaskStatusData): void {
     try {
       if (!this.db) {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       
-      const sql = `INSERT OR REPLACE INTO tasks (task_id, progress, outputs, last_saved, request_params, updated_at)
-                   VALUES (?, ?, ?, ?, ?, datetime('now'))`;
+      const sql = `INSERT OR REPLACE INTO tasks (
+        task_id, progress, outputs, last_saved, request_params, 
+        current_step, step_status, finish_reason, is_valid_complete, last_step_completed_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`;
       
       const stmt = this.db.prepare(sql);
       stmt.run(
@@ -246,7 +291,12 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         JSON.stringify(progress),
         JSON.stringify(outputs),
         new Date().toISOString(),
-        JSON.stringify(requestParams)
+        JSON.stringify(requestParams),
+        statusData.currentStep || null,
+        statusData.stepStatus || null,
+        statusData.finishReason || null,
+        statusData.isValidComplete ? 1 : 0,
+        statusData.lastStepCompletedAt || null
       );
     } catch (error) {
       console.error(`Failed to save task ${taskId}:`, error);
@@ -260,7 +310,8 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       const stmt = this.db.prepare(`
-        SELECT task_id, progress, outputs, last_saved, request_params, created_at, updated_at
+        SELECT task_id, progress, outputs, last_saved, request_params, created_at, updated_at,
+               current_step, step_status, finish_reason, is_valid_complete, last_step_completed_at
         FROM tasks WHERE task_id = ?
       `);
 
@@ -274,7 +325,12 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         lastSaved: row.last_saved,
         requestParams: row.request_params ? JSON.parse(row.request_params) : this.getDefaultRequestParams(),
         createdAt: row.created_at || new Date().toISOString(),
-        updatedAt: row.updated_at || new Date().toISOString()
+        updatedAt: row.updated_at || new Date().toISOString(),
+        currentStep: row.current_step,
+        stepStatus: row.step_status,
+        finishReason: row.finish_reason,
+        isValidComplete: row.is_valid_complete === 1,
+        lastStepCompletedAt: row.last_step_completed_at
       };
     } catch (error) {
       console.error(`Failed to get task ${taskId}:`, error);
@@ -288,7 +344,8 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         throw new Error(`Database not initialized - ${this.implementation} unavailable`);
       }
       const stmt = this.db.prepare(`
-        SELECT task_id, progress, outputs, last_saved, request_params, created_at, updated_at
+        SELECT task_id, progress, outputs, last_saved, request_params, created_at, updated_at,
+               current_step, step_status, finish_reason, is_valid_complete, last_step_completed_at
         FROM tasks ORDER BY updated_at DESC
       `);
 
@@ -300,11 +357,40 @@ class UnifiedSQLiteDatabase implements DatabaseInterface {
         lastSaved: row.last_saved,
         requestParams: row.request_params ? JSON.parse(row.request_params) : this.getDefaultRequestParams(),
         createdAt: row.created_at || new Date().toISOString(),
-        updatedAt: row.updated_at || new Date().toISOString()
+        updatedAt: row.updated_at || new Date().toISOString(),
+        currentStep: row.current_step,
+        stepStatus: row.step_status,
+        finishReason: row.finish_reason,
+        isValidComplete: row.is_valid_complete === 1,
+        lastStepCompletedAt: row.last_step_completed_at
       }));
     } catch (error) {
       console.error('Failed to get all tasks:', error);
       throw error; // 重新抛出错误
+    }
+  }
+
+  archiveTask(taskId: string): void {
+    try {
+      if (!this.db) {
+        throw new Error(`Database not initialized - ${this.implementation} unavailable`);
+      }
+      
+      // 生成带时间戳的新ID
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const archivedId = `${taskId}-archived-${timestamp}`;
+      
+      // 更新任务ID为归档格式
+      const stmt = this.db.prepare('UPDATE tasks SET task_id = ? WHERE task_id = ?');
+      const result = stmt.run(archivedId, taskId);
+      
+      if (result.changes > 0) {
+        console.log(`Task ${taskId} archived as ${archivedId}`);
+      } else {
+        console.warn(`Task ${taskId} not found for archiving`);
+      }
+    } catch (error) {
+      console.error(`Failed to archive task ${taskId}:`, error);
     }
   }
 
@@ -495,6 +581,13 @@ class TaskDatabase implements DatabaseInterface {
     return this.instance.saveTask(taskId, progress, outputs, requestParams);
   }
 
+  saveTaskWithStatus(taskId: string, progress: TaskProgress, outputs: string[], requestParams: TaskRequestParams, statusData: TaskStatusData): void {
+    if (!this.instance) {
+      throw new Error('Database not initialized - cannot save task with status');
+    }
+    return this.instance.saveTaskWithStatus(taskId, progress, outputs, requestParams, statusData);
+  }
+
   getTask(taskId: string): TaskData | null {
     if (!this.instance) {
       throw new Error('Database not initialized - cannot get task');
@@ -507,6 +600,13 @@ class TaskDatabase implements DatabaseInterface {
       throw new Error('Database not initialized - cannot get tasks');
     }
     return this.instance.getAllTasks();
+  }
+
+  archiveTask(taskId: string): void {
+    if (!this.instance) {
+      throw new Error('Database not initialized - cannot archive task');
+    }
+    return this.instance.archiveTask(taskId);
   }
 
   deleteTask(taskId: string): void {
@@ -551,5 +651,6 @@ class TaskDatabase implements DatabaseInterface {
   }
 }
 
-// 不再导出异步检测函数，避免在请求处理时被误用
+// 导出接口和类型
+export { TaskData, TaskStatusData };
 export default TaskDatabase;

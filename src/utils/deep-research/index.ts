@@ -930,8 +930,6 @@ class DeepResearch {
     
     // 用于累积所有重试的内容，确保不丢失任何内容
     let accumulatedContent = "";
-    let accumulatedReasoningContent = "";
-    let finalResult: FinalReportResult | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const startTime = Date.now();
@@ -1322,8 +1320,7 @@ class DeepResearch {
               accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
             }
             accumulatedContent += content;
-            accumulatedReasoningContent += reasoningContent;
-            
+              
             this.logger.debug(`Accumulated content from failed attempt ${attempt}`, {
               currentContentLength: content.length,
               accumulatedContentLength: accumulatedContent.length,
@@ -1407,7 +1404,6 @@ class DeepResearch {
             accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
           }
           accumulatedContent += content;
-          accumulatedReasoningContent += reasoningContent;
         }
 
         // 创建最终报告结果，使用当前成功的内容（用于客户端显示）
@@ -1421,14 +1417,7 @@ class DeepResearch {
           images,
         };
 
-        // 同时保存累积内容到类的实例变量，供数据库存储使用
-        finalResult = {
-          title,
-          finalReport: accumulatedContent, // 数据库存储使用累积内容
-          learnings,
-          sources,
-          images,
-        };
+        // 注意：累积内容会被BackgroundTaskManager自动保存到数据库
 
         // 验证报告质量
         const qualityCheck = this.validateReportQuality(finalReportResult);
@@ -1473,7 +1462,10 @@ class DeepResearch {
         this.onMessage("progress", {
           step: "final-report",
           status: "end",
-          data: finalReportResult,
+          data: {
+            ...finalReportResult,
+            finishReason: currentFinishReason || 'stop' // 传递finishReason信息
+          },
         });
         
         return finalReportResult;
@@ -1487,7 +1479,6 @@ class DeepResearch {
             accumulatedContent += "\n\n---\n\n"; // 分隔符区分不同重试的内容
           }
           accumulatedContent += content;
-          accumulatedReasoningContent += reasoningContent;
           
           this.logger.debug(`Accumulated content from failed attempt ${attempt} (exception)`, {
             currentContentLength: content.length,
