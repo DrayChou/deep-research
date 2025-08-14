@@ -76,7 +76,7 @@ export class RobustJsonParser {
     }
 
     // 全部失败
-    logger.error(`${context} All JSON parse attempts failed`, {
+    logger.error(`${context} All JSON parse attempts failed`, new Error(`Failed to parse JSON after all repair attempts: ${aggressiveResult.error}`), {
       duration: Date.now() - startTime,
       contentLength: content.length,
       contentSample: content.substring(0, 500),

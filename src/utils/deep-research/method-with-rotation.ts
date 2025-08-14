@@ -46,7 +46,9 @@ export class MethodWithRotation {
     const logger = Logger.getInstance(`Method-${context.operation}`);
     
     const fullConfig: ModelRotationConfig = {
-      ...this.DEFAULT_CONFIG,
+      maxModelRetries: this.DEFAULT_CONFIG.maxModelRetries!,
+      maxMethodRetries: this.DEFAULT_CONFIG.maxMethodRetries!,
+      retryDelay: this.DEFAULT_CONFIG.retryDelay!,
       ...config,
       operation: context.operation
     };
@@ -162,7 +164,7 @@ export class MethodWithRotation {
       // 所有尝试都失败了
       const totalDuration = Date.now() - startTime;
       
-      logger.error('All method attempts failed', lastError, {
+      logger.error('All method attempts failed', lastError || new Error('All attempts failed'), {
         operation: context.operation,
         totalAttempts,
         totalDuration,
