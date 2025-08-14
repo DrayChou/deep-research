@@ -55,49 +55,49 @@ export class ModelRotationManager {
 
   /**
    * 生成重试尝试序列
-   * 先轮换模型（3轮），再进行方法级重试（每个模型3次）
+   * 策略：3轮循环，每轮按顺序尝试所有模型 (gemini→gpt→auto)×3轮
    */
   *generateAttempts(): Generator<ModelRotationAttempt> {
     let totalAttempt = 0;
-    const totalMaxAttempts = this.config.maxModelRetries * this.config.maxMethodRetries;
+    const totalMaxAttempts = this.config.maxModelRetries * this.models.length;
 
-    // 外层循环：模型轮换
-    for (let modelRound = 1; modelRound <= this.config.maxModelRetries; modelRound++) {
-      // 内层循环：每个模型的方法级重试
+    // 外层循环：3轮重试
+    for (let round = 1; round <= this.config.maxModelRetries; round++) {
+      // 内层循环：按顺序尝试每个模型
       for (let modelIndex = 0; modelIndex < this.models.length; modelIndex++) {
         const modelName = this.models[modelIndex];
         
         // 跳过已知失败的模型（除非是最后一轮）
-        if (this.failedModels.has(modelName) && modelRound < this.config.maxModelRetries) {
+        if (this.failedModels.has(modelName) && round < this.config.maxModelRetries) {
           this.logger.debug('Skipping known failed model', { 
             modelName, 
-            modelRound, 
-            failedModels: Array.from(this.failedModels) 
+            round,
+            failedModels: Array.from(this.failedModels),
+            remainingModels: this.models.filter(m => !this.failedModels.has(m))
           });
           continue;
         }
 
-        for (let methodRetry = 1; methodRetry <= this.config.maxMethodRetries; methodRetry++) {
-          totalAttempt++;
-          
-          const attempt: ModelRotationAttempt = {
-            modelIndex,
-            modelName,
-            methodRetry,
-            totalAttempt,
-            isLastModel: modelIndex === this.models.length - 1,
-            isLastMethodRetry: methodRetry === this.config.maxMethodRetries,
-            isLastOverallAttempt: totalAttempt === totalMaxAttempts
-          };
+        totalAttempt++;
+        
+        const attempt: ModelRotationAttempt = {
+          modelIndex,
+          modelName,
+          methodRetry: round, // 当前是第几轮
+          totalAttempt,
+          isLastModel: modelIndex === this.models.length - 1,
+          isLastMethodRetry: round === this.config.maxModelRetries,
+          isLastOverallAttempt: totalAttempt === totalMaxAttempts
+        };
 
-          this.logger.debug('Generated attempt', {
-            ...attempt,
-            modelRound,
-            progress: `${totalAttempt}/${totalMaxAttempts}`
-          });
+        this.logger.debug('Generated attempt', {
+          ...attempt,
+          round,
+          progress: `${totalAttempt}/${totalMaxAttempts}`,
+          sequence: `Round ${round}: ${modelName}`
+        });
 
-          yield attempt;
-        }
+        yield attempt;
       }
     }
   }
