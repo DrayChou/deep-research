@@ -15,6 +15,7 @@ import {
 } from "../../utils";
 import { logger } from "@/utils/logger";
 import BackgroundTaskManager from "./background-task-manager";
+import { FinalReportValidator } from './final-report-validator';
 
 
 export class SSELiveHandler {
@@ -340,12 +341,33 @@ class SSEStreamHandler {
   }
 
   private async handleCompletedTask(): Promise<void> {
-    this.requestLogger.info("Returning completed task output", { taskId: this.taskId });
+    this.requestLogger.info("Found completed task, validating cache quality", { taskId: this.taskId });
     
-    const outputs = this.taskManager.getTaskOutput(this.taskId);
-    await this.streamOutputs(outputs);
+    // 验证缓存的final-report完整性
+    const validationResult = FinalReportValidator.validateTaskCache(this.existingTask);
     
-    this.controller.close();
+    if (validationResult.isValid) {
+      this.requestLogger.info("Cache validation passed, returning cached result", { 
+        taskId: this.taskId,
+        validation: FinalReportValidator.getValidationMessage(validationResult)
+      });
+      
+      const outputs = this.taskManager.getTaskOutput(this.taskId);
+      await this.streamOutputs(outputs);
+      this.controller.close();
+    } else {
+      this.requestLogger.warn("Cache validation failed, restarting task", { 
+        taskId: this.taskId,
+        reason: validationResult.reason,
+        validation: FinalReportValidator.getValidationMessage(validationResult)
+      });
+      
+      // 归档无效缓存任务
+      await this.taskManager.archiveInvalidTask(this.taskId, `Invalid final-report cache: ${validationResult.reason}`);
+      
+      // 重新开始执行任务
+      await this.handleNewTask();
+    }
   }
 
   private async handleExistingTask(): Promise<void> {
