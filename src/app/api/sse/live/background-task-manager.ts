@@ -10,6 +10,8 @@ import * as os from "node:os";
 import TaskDatabase from "./task-database";
 import TaskDatabaseV2, { TaskDataV2, TaskStatusDataV2 } from "./task-database-v2";
 import { withErrorRecovery, createErrorContext } from "./error-handler";
+import { NotificationService } from "@/utils/notification";
+import { notificationConfig } from "@/utils/notification/config";
 
 export interface TaskProgress {
   step: string;
@@ -47,6 +49,7 @@ class BackgroundTaskManager {
   private storageDir: string;
   private db!: TaskDatabase;
   private dbV2!: TaskDatabaseV2;
+  private notificationService: NotificationService;
   
   // Memory management
   private clientConnections: Map<string, number> = new Map();
@@ -60,6 +63,7 @@ class BackgroundTaskManager {
 
   private constructor() {
     this.storageDir = path.join(process.cwd(), 'data', 'tasks');
+    this.notificationService = new NotificationService(notificationConfig);
     this.initializeMemorySettings();
     this.initializeDatabaseSync();
     this.loadTasksFromDatabase();
@@ -846,6 +850,9 @@ class BackgroundTaskManager {
         });
         this.runningTasks.delete(taskId);
         logger.getInstance('BackgroundTaskManager').error('Background task failed', error, { taskId });
+        
+        // 检查是否为关键系统故障
+        this.checkAndNotifyCriticalFailure(taskId, error, requestParams);
       });
 
     this.runningTasks.set(taskId, taskPromise);
@@ -1038,6 +1045,109 @@ class BackgroundTaskManager {
     this.taskOutputs.clear();
     this.taskParams.clear();
     this.clientConnections.clear();
+  }
+  // 检查和通知关键系统故障
+  private checkAndNotifyCriticalFailure(taskId: string, error: any, params: TaskRequestParams): void {
+    try {
+      const errorMessage = error?.message || 'Unknown error';
+      const failureCount = this.getRecentFailureCount();
+      
+      // 判断是否为关键系统故障
+      const isCriticalFailure = this.isCriticalSystemFailure(error, failureCount);
+      
+      if (isCriticalFailure) {
+        logger.getInstance('BackgroundTaskManager').warn('检测到关键系统故障，发送警报', {
+          taskId,
+          errorMessage,
+          failureCount,
+          provider: params.aiProvider
+        });
+
+        this.notificationService.sendAsync({
+          title: '🚨 背景任务管理器关键故障',
+          content: this.formatTaskFailureAlert(taskId, error, params, failureCount),
+          level: 'critical',
+          source: 'Background Task Manager',
+          tags: ['background-task-failure', 'critical', 'system-failure'],
+          extra: {
+            taskId,
+            errorMessage,
+            failureCount,
+            aiProvider: params.aiProvider,
+            searchProvider: params.searchProvider,
+            query: params.query.substring(0, 100),
+            detectedAt: new Date().toISOString()
+          }
+        });
+      }
+    } catch (notificationError) {
+      // 通知发送失败不应该影响主流程
+      logger.getInstance('BackgroundTaskManager').warn('背景任务故障通知发送失败', {
+        taskId,
+        error: notificationError instanceof Error ? notificationError.message : String(notificationError)
+      });
+    }
+  }
+
+  // 判断是否为关键系统故障
+  private isCriticalSystemFailure(error: any, recentFailureCount: number): boolean {
+    const errorMessage = error?.message || '';
+    
+    // 关键故障条件
+    const criticalPatterns = [
+      /all.*models.*failed/i,
+      /system.*unavailable/i,
+      /critical.*error/i,
+      /connection.*refused/i,
+      /timeout.*exceeded/i,
+      /memory.*exhausted/i
+    ];
+
+    // 检查错误模式
+    const hasCriticalPattern = criticalPatterns.some(pattern => pattern.test(errorMessage));
+    
+    // 检查失败频率 (5分钟内失败超过3次)
+    const hasHighFailureRate = recentFailureCount >= 3;
+    
+    return hasCriticalPattern || hasHighFailureRate;
+  }
+
+  // 获取最近的失败次数
+  private getRecentFailureCount(): number {
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    let failureCount = 0;
+    
+    for (const [, task] of this.tasks.entries()) {
+      if (task.status === 'failed' && 
+          new Date(task.timestamp).getTime() > fiveMinutesAgo) {
+        failureCount++;
+      }
+    }
+    
+    return failureCount;
+  }
+
+  // 格式化任务失败警报消息
+  private formatTaskFailureAlert(taskId: string, error: any, params: TaskRequestParams, failureCount: number): string {
+    const timestamp = new Date().toLocaleString('zh-CN');
+    const errorMessage = error?.message || 'Unknown error';
+    
+    return `背景任务管理器检测到关键系统故障。
+
+🔴 **影响范围**: 深度研究任务执行系统
+📋 **失败任务ID**: ${taskId}
+🔢 **近期失败次数**: ${failureCount} 次 (5分钟内)
+🔧 **AI提供商**: ${params.aiProvider}
+🔍 **搜索提供商**: ${params.searchProvider}
+📝 **查询内容**: ${params.query.substring(0, 100)}${params.query.length > 100 ? '...' : ''}
+❌ **错误详情**: ${errorMessage}
+🕐 **检测时间**: ${timestamp}
+
+⚠️ **需要立即处理**: 
+- 检查AI提供商和搜索引擎服务状态
+- 验证API密钥和配额
+- 检查系统资源使用情况
+- 查看详细错误日志定位问题`;
   }
 }
 

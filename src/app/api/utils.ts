@@ -842,20 +842,37 @@ export function getSearchProviderConfig(jwtConfig: UserConfig, req: NextRequest,
 function mergeAndDeduplicateKeys(jwtKeys: string, envKeys: string): string {
   const allKeys: string[] = [];
   
-  // 添加 JWT 配置的 key
+  // 添加 JWT 配置的 key (优先级更高，放在前面)
   if (jwtKeys && jwtKeys.trim()) {
-    allKeys.push(...jwtKeys.split(',').map(k => k.trim()).filter(k => k));
+    const jwtKeyList = jwtKeys.split(',')
+      .map(k => k.trim())
+      .filter(k => k && k.length > 0)
+      .filter(k => k !== 'undefined' && k !== 'null'); // 过滤无效值
+    allKeys.push(...jwtKeyList);
   }
   
-  // 添加环境变量的 key
+  // 添加环境变量的 key (作为补充)
   if (envKeys && envKeys.trim()) {
-    allKeys.push(...envKeys.split(',').map(k => k.trim()).filter(k => k));
+    const envKeyList = envKeys.split(',')
+      .map(k => k.trim())
+      .filter(k => k && k.length > 0)
+      .filter(k => k !== 'undefined' && k !== 'null'); // 过滤无效值
+    allKeys.push(...envKeyList);
   }
   
-  // 去重
-  const uniqueKeys = [...new Set(allKeys)];
+  // 增强去重逻辑：基于完整key字符串去重，保持顺序
+  const uniqueKeys = allKeys.filter((key, index, arr) => {
+    // 只保留第一次出现的key，移除后续重复
+    return arr.indexOf(key) === index;
+  });
   
-  return uniqueKeys.join(',');
+  // 验证key格式的基本检查（可选）
+  const validKeys = uniqueKeys.filter(key => {
+    // 基本格式检查：至少包含一些字符，不能全是特殊字符
+    return key.length >= 3 && /[a-zA-Z0-9]/.test(key);
+  });
+  
+  return validKeys.join(',');
 }
 
 /**

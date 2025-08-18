@@ -202,11 +202,42 @@ ${error}`,
     const creditErrorKeywords = [
       'credit', 'credits', 'balance', 'quota', 'billing',
       'payment', 'insufficient', 'afford', 'limit exceeded',
-      '余额', '欠费', '配额', '超出', '不足'
+      'usage limit', 'plan limit', 'exceeds.*plan.*limit', 'exceeds.*usage.*limit',
+      'set usage limit', 'plan\'s set usage limit', // Tavily 特定错误
+      'rate limit', 'monthly limit', 'daily limit',
+      '余额', '欠费', '配额', '超出', '不足', '使用限制', '计划限制'
+    ];
+    
+    // Tavily特定的432状态码错误模式
+    const tavilyErrorPatterns = [
+      /tavily.*432/i,
+      /failed:?\s*432/i,
+      /status\s*432/i,
+      /http\s*432/i
     ];
     
     const errorLower = error.toLowerCase();
-    return creditErrorKeywords.some(keyword => errorLower.includes(keyword));
+    
+    // 首先检查Tavily 432错误模式
+    if (tavilyErrorPatterns.some(pattern => pattern.test(error))) {
+      return true;
+    }
+    
+    // 支持正则表达式匹配和普通字符串匹配
+    return creditErrorKeywords.some(keyword => {
+      if (keyword.includes('.*')) {
+        // 正则表达式匹配
+        try {
+          const regex = new RegExp(keyword, 'i');
+          return regex.test(error);
+        } catch {
+          // 如果正则表达式无效，回退到字符串匹配
+          return errorLower.includes(keyword.replace(/\.\*/g, ''));
+        }
+      }
+      // 普通字符串匹配
+      return errorLower.includes(keyword);
+    });
   }
 
   /**

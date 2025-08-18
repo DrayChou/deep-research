@@ -207,6 +207,16 @@ class DeepResearch {
             provider: AIProvider.provider,
             totalAttempts: modelArray.length
           });
+          
+          // 发送关键系统故障通知
+          this.sendCriticalSystemAlert('AI_MODEL_COMPLETE_FAILURE', {
+            provider: AIProvider.provider,
+            modelType,
+            attemptedModels: modelArray,
+            errorMessage: lastError?.message || 'Unknown error',
+            totalAttempts: modelArray.length
+          });
+          
           throw lastError;
         }
       }
@@ -723,6 +733,90 @@ class DeepResearch {
 
     // 注意：由于是异步非阻塞，这里不再等待结果或记录成功日志
     // 成功或失败的日志会在 NotificationService 内部处理
+  }
+
+  // 发送关键系统故障警报
+  private sendCriticalSystemAlert(alertType: string, details: Record<string, any>): void {
+    try {
+      const alertMessage = this.formatCriticalAlert(alertType, details);
+      
+      this.logger.info('发送关键系统故障警报', {
+        alertType,
+        details: {
+          ...details,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+      // 使用异步非阻塞发送，避免影响主流程
+      this.notificationService.sendAsync({
+        title: `🚨 系统关键故障 - ${alertType}`,
+        content: alertMessage,
+        level: 'critical',
+        source: 'Deep Research System Monitor',
+        tags: ['system-failure', 'critical', alertType.toLowerCase()],
+        extra: {
+          alertType,
+          ...details,
+          detectedAt: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      // 通知发送失败不应该影响主流程
+      this.logger.warn('关键系统警报发送失败', {
+        alertType,
+        details,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  // 格式化关键警报消息
+  private formatCriticalAlert(alertType: string, details: Record<string, any>): string {
+    const timestamp = new Date().toLocaleString('zh-CN');
+    
+    switch (alertType) {
+      case 'AI_MODEL_COMPLETE_FAILURE':
+        return `所有AI模型完全失效，系统核心功能不可用。
+
+🔴 **影响范围**: ${details.modelType} 模型服务
+🔧 **AI提供商**: ${details.provider}
+📋 **尝试模型**: ${details.attemptedModels?.join(', ') || '未知'}
+🔢 **失败次数**: ${details.totalAttempts} 次
+❌ **错误信息**: ${details.errorMessage}
+🕐 **检测时间**: ${timestamp}
+
+⚠️ **需要立即处理**: 检查AI提供商服务状态和API配置`;
+
+      case 'BACKGROUND_TASK_COMPLETE_FAILURE':
+        return `背景任务管理器完全失效，深度研究功能不可用。
+
+🔴 **影响范围**: 深度研究任务执行
+📋 **任务ID**: ${details.taskId || '未知'}
+❌ **错误信息**: ${details.errorMessage}
+🕐 **检测时间**: ${timestamp}
+
+⚠️ **需要立即处理**: 检查系统资源和任务调度器状态`;
+
+      case 'JWT_AUTHENTICATION_FAILURE':
+        return `数据中心JWT认证完全失败，用户配置无法获取。
+
+🔴 **影响范围**: 用户配置和认证服务
+🌐 **数据中心地址**: ${details.dataBaseUrl || '未知'}
+❌ **错误信息**: ${details.errorMessage}
+🕐 **检测时间**: ${timestamp}
+
+⚠️ **需要立即处理**: 检查数据中心服务状态和JWT配置`;
+
+      default:
+        return `检测到未分类的关键系统故障。
+
+🔴 **故障类型**: ${alertType}
+📋 **详细信息**: ${JSON.stringify(details, null, 2)}
+🕐 **检测时间**: ${timestamp}
+
+⚠️ **需要立即处理**: 请检查系统日志获取更多信息`;
+    }
   }
 
   // 验证报告质量的辅助方法
