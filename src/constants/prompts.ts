@@ -273,7 +273,15 @@ Please write according to the user's writing requirements, if any:
 
 Write a final report based on the report plan using the learnings from research.
 Make it as detailed as possible, aim for 5 pages or more, the more the better, include ALL the learnings from research.
-**Respond only the final report content, and no additional text before or after.**`;
+
+**IMPORTANT MARKDOWN FORMATTING REQUIREMENTS:**
+- Ensure all headings (# ## ###) have blank lines before AND after them
+- Example: "paragraph text\n\n# Heading\n\ncontent" (NOT "paragraph text\n# Heading\ncontent")
+- Use proper hierarchy: # for main title, ## for sections, ### for subsections
+- All lists should have proper spacing
+- Use clear paragraph breaks with blank lines between sections
+
+**Respond only the final report content in properly formatted markdown, and no additional text before or after.**`;
 
 export const rewritingPrompt = `You are tasked with re-writing the following text to markdown. Ensure you do not change the meaning or story behind the text. 
 
