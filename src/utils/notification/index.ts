@@ -89,7 +89,7 @@ export class NotificationService {
           }
         } catch (error) {
           result.error = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`[NotificationService] ${channel.name} failed:`, error);
+          console.error(`[NotificationService] ${channel.name} failed:`, error instanceof Error ? error : new Error(String(error)));
         }
 
         return result;
@@ -135,10 +135,10 @@ export class NotificationService {
           console.warn(`[NotificationService] Async notification partially failed. Success: ${successCount}, Failed: ${failCount}`);
         }
       } catch (error) {
-        console.error('[NotificationService] Async notification failed:', error);
+        console.error('[NotificationService] Async notification failed:', error instanceof Error ? error : new Error(String(error)));
       }
     }).catch(error => {
-      console.error('[NotificationService] Critical error in async notification:', error);
+      console.error('[NotificationService] Critical error in async notification:', error instanceof Error ? error : new Error(String(error)));
     });
   }
 

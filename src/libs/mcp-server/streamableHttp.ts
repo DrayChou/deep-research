@@ -118,7 +118,7 @@ const nanoid = customAlphabet("1234567890abcdef");
  * };
  *
  * transport.onerror = (error) => {
- *   console.error('Transport error:', error);
+ *   console.error('Transport error:', error instanceof Error ? error : new Error(String(error)));
  * };
  *
  * transport.onclose = () => {

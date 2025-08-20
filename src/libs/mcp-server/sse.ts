@@ -60,7 +60,7 @@ const nanoid = customAlphabet("1234567890abcdef");
  *   };
  *
  *   transport.onerror = (error) => {
- *     console.error(`[${sessionId}] Transport error:`, error);
+ *     console.error(`[${sessionId}] Transport error:`, error instanceof Error ? error : new Error(String(error)));
  *     // Handle errors (e.g., log, close session)
  *   };
  *
@@ -197,7 +197,7 @@ export class SSEServerTransport implements Transport {
         } catch (error) {
           console.error(
             `[${this._sessionId}] Failed to enqueue endpoint event:`,
-            error
+            error instanceof Error ? error : new Error(String(error))
           );
           // If enqueue fails immediately, the stream might be broken
           controller.error(new Error("Failed to enqueue initial SSE event."));
@@ -284,7 +284,7 @@ export class SSEServerTransport implements Transport {
       // if (bodyText.length > /* calculated byte limit from MAXIMUM_MESSAGE_SIZE */) { ... throw Error('Too large') ... }
       // rawMessage = JSON.parse(bodyText);
     } catch (error) {
-      console.error(`[${this._sessionId}] Failed to parse POST body:`, error);
+      console.error(`[${this._sessionId}] Failed to parse POST body:`, error instanceof Error ? error : new Error(String(error)));
       this.onerror?.(error as Error);
       // Return a JSON-RPC parse error response
       return new Response(
@@ -303,7 +303,7 @@ export class SSEServerTransport implements Transport {
     } catch (error) {
       console.error(
         `[${this._sessionId}] Failed to handle message after parsing:`,
-        error
+        error instanceof Error ? error : new Error(String(error))
       );
       // If handleMessage throws (likely due to Zod validation error or onmessage handler error)
       // Return a JSON-RPC Invalid Request error response
@@ -382,7 +382,7 @@ export class SSEServerTransport implements Transport {
     } catch (error) {
       console.error(
         `[${this._sessionId}] Error during controller.close():`,
-        error
+        error instanceof Error ? error : new Error(String(error))
       );
       this.onerror?.(error as Error); // Report closing error
     }

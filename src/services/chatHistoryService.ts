@@ -187,7 +187,7 @@ class ChatHistoryService {
       console.log('[ChatHistoryService] 话题创建成功:', topicId);
       return topicId;
     } catch (error) {
-      console.error('[ChatHistoryService] 创建话题失败:', error);
+      console.error('[ChatHistoryService] 创建话题失败:', error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
   }
@@ -248,7 +248,7 @@ class ChatHistoryService {
       console.log('[ChatHistoryService] 历史记录加载成功:', topicId);
       return { state, topic };
     } catch (error) {
-      console.error('[ChatHistoryService] 加载历史记录失败:', error);
+      console.error('[ChatHistoryService] 加载历史记录失败:', error instanceof Error ? error : new Error(String(error)));
       return null;
     }
   }
@@ -295,7 +295,7 @@ class ChatHistoryService {
       const message = await response.json();
       console.log('[ChatHistoryService] 研究状态快照保存成功:', message.id);
     } catch (error) {
-      console.error('[ChatHistoryService] 保存状态快照失败:', error);
+      console.error('[ChatHistoryService] 保存状态快照失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -363,7 +363,7 @@ class ChatHistoryService {
 
       console.log('[ChatHistoryService] 用户消息保存成功');
     } catch (error) {
-      console.error('[ChatHistoryService] 保存用户消息失败:', error);
+      console.error('[ChatHistoryService] 保存用户消息失败:', error instanceof Error ? error : new Error(String(error)));
       // 简化处理：直接抛出错误，不做重试
       throw error;
     }
@@ -406,7 +406,7 @@ class ChatHistoryService {
 
       console.log('[ChatHistoryService] AI阶段性回复保存成功');
     } catch (error) {
-      console.error('[ChatHistoryService] 保存AI回复失败:', error);
+      console.error('[ChatHistoryService] 保存AI回复失败:', error instanceof Error ? error : new Error(String(error)));
       // 简化处理：直接抛出错误，不做重试
       throw error;
     }
@@ -458,7 +458,7 @@ class ChatHistoryService {
       const message = await response.json();
       console.log('[ChatHistoryService] 消息保存成功:', message.id);
     } catch (error) {
-      console.error('[ChatHistoryService] 保存消息失败:', error);
+      console.error('[ChatHistoryService] 保存消息失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -490,7 +490,7 @@ class ChatHistoryService {
 
       console.log('[ChatHistoryService] 话题状态更新成功:', status);
     } catch (error) {
-      console.error('[ChatHistoryService] 更新话题状态失败:', error);
+      console.error('[ChatHistoryService] 更新话题状态失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -518,7 +518,7 @@ class ChatHistoryService {
 
       console.log('[ChatHistoryService] 话题标题更新成功:', title);
     } catch (error) {
-      console.error('[ChatHistoryService] 更新话题标题失败:', error);
+      console.error('[ChatHistoryService] 更新话题标题失败:', error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
   }

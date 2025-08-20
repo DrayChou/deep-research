@@ -59,7 +59,7 @@ async function handler(req: NextRequest) {
     return new NextResponse(response.body, response);
   } catch (error) {
     if (error instanceof Error) {
-      console.error("[openaicompatible] Error:", error);
+      console.error("[openaicompatible] Error:", error instanceof Error ? error : new Error(String(error)));
       return NextResponse.json(
         { code: 500, message: error.message },
         { status: 500 }

@@ -115,7 +115,7 @@ class DataCenterAPI {
         data,
       };
     } catch (error) {
-      console.error('[DataCenterAPI] 获取话题历史失败:', error);
+      console.error('[DataCenterAPI] 获取话题历史失败:', error instanceof Error ? error : new Error(String(error)));
       return {
         success: false,
         error: error instanceof Error ? error.message : '未知错误',
@@ -148,7 +148,7 @@ class DataCenterAPI {
         data,
       };
     } catch (error) {
-      console.error('[DataCenterAPI] 获取话题列表失败:', error);
+      console.error('[DataCenterAPI] 获取话题列表失败:', error instanceof Error ? error : new Error(String(error)));
       return {
         success: false,
         error: error instanceof Error ? error.message : '未知错误',
@@ -181,7 +181,7 @@ class DataCenterAPI {
         data: { valid: true, user: data },
       };
     } catch (error) {
-      console.error('[DataCenterAPI] JWT验证失败:', error);
+      console.error('[DataCenterAPI] JWT验证失败:', error instanceof Error ? error : new Error(String(error)));
       return {
         success: false,
         error: error instanceof Error ? error.message : '未知错误',

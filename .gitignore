@@ -55,18 +55,34 @@ claude.ps1
 *.log
 *.backup
 
-# Task recovery data
+# Task recovery data and logs
 /data
-logs/*.json
+/logs
+server.log
+*.log
 
-# Test scripts and database files (should not be committed)
-check_db*.js
-check_db*.mjs
-test_*.js
-test_*.mjs
+# Database files (SQLite should not be committed)
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+
+# Test and development scripts (should not be committed)
+check_db*.js
+check_db*.mjs
+test*.js
+test*.mjs
+test*.json
 debug_*.js
 debug_*.mjs
-logs/*.txt
+migrate-*.js
+database-switch.js
+*-migration*.md
+
+# Workspace and build artifacts
+pnpm-workspace.yaml
+tsconfig.tsbuildinfo
+
+# Development files (keep existing ones in repo)
+# Note: start.bat, start.ps1, rebuild4run.sh are kept in repo

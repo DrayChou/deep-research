@@ -45,7 +45,11 @@
       "Bash(git checkout:*)",
       "Bash(sqlite3:*)",
       "Bash(git rm:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(curl:*)",
+      "Bash(docker ps:*)",
+      "Bash(PORT=3002 pnpm run dev)",
+      "Bash(npx next dev:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

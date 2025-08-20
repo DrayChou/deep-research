@@ -105,7 +105,7 @@ export class EmailChannel implements NotificationChannel {
       
       return false;
     } catch (error) {
-      console.error('[Email] SMTP sending failed:', error);
+      console.error('[Email] SMTP sending failed:', error instanceof Error ? error : new Error(String(error)));
       return false;
     }
   }

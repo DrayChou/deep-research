@@ -111,7 +111,7 @@ export const useUrlConfig = () => {
         Object.assign(params, jsonConfig);
         console.log('[useUrlConfig] 解析JSON配置成功:', params);
       } catch (error) {
-        console.error('[useUrlConfig] JSON配置解析失败:', error);
+        console.error('[useUrlConfig] JSON配置解析失败:', error instanceof Error ? error : new Error(String(error)));
       }
     }
     

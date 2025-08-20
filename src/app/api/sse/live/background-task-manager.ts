@@ -7,8 +7,8 @@ import { logger } from "@/utils/logger";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import * as os from "node:os";
-import TaskDatabase from "./task-database";
-import TaskDatabaseV2, { TaskDataV2, TaskStatusDataV2 } from "./task-database-v2";
+// PostgreSQL数据库统一支持
+import { createAsyncDatabase, getDatabaseHealth } from './database-factory';
 import { withErrorRecovery, createErrorContext } from "./error-handler";
 import { NotificationService } from "@/utils/notification";
 import { notificationConfig } from "@/utils/notification/config";
@@ -47,8 +47,8 @@ class BackgroundTaskManager {
   private taskOutputs: Map<string, string[]> = new Map();
   private taskParams: Map<string, any> = new Map();
   private storageDir: string;
-  private db!: TaskDatabase;
-  private dbV2!: TaskDatabaseV2;
+  private db!: any; // 统一PostgreSQL数据库接口
+  private isInitialized = false;
   private notificationService: NotificationService;
   
   // Memory management
@@ -65,9 +65,29 @@ class BackgroundTaskManager {
     this.storageDir = path.join(process.cwd(), 'data', 'tasks');
     this.notificationService = new NotificationService(notificationConfig);
     this.initializeMemorySettings();
-    this.initializeDatabaseSync();
-    this.loadTasksFromDatabase();
-    this.startCleanupProcess();
+  }
+
+  /**
+   * 异步初始化数据库
+   */
+  private async initializeDatabase(): Promise<void> {
+    try {
+      console.log('Initializing BackgroundTaskManager with database factory...');
+      
+      // 使用统一的PostgreSQL数据库实例
+      this.db = await createAsyncDatabase();
+      
+      // 检查数据库健康状态
+      const health = await getDatabaseHealth();
+      console.log('Database health check:', health);
+      
+      this.isInitialized = true;
+      console.log('✅ BackgroundTaskManager databases initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize BackgroundTaskManager database:', error);
+      logger.getInstance('BackgroundTaskManager').error('Database initialization failed', error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   }
 
   private initializeMemorySettings(): void {
@@ -103,67 +123,72 @@ class BackgroundTaskManager {
     console.log(`Memory allocation: ${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB / ${Math.round(systemMemoryGB * 1024)}MB (${Math.round((this.maxMemoryUsage / this.systemTotalMemory) * 100)}%)`);
   }
 
-  private initializeDatabaseSync(): void {
-    try {
-      console.log('Initializing BackgroundTaskManager databases...');
-      
-      // Initialize legacy database for backward compatibility
-      this.db = new TaskDatabase(this.storageDir);
-      
-      // Initialize new optimized database
-      this.dbV2 = new TaskDatabaseV2(path.join(this.storageDir, 'tasksv2.db'));
-      
-      console.log('✓ BackgroundTaskManager databases initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize BackgroundTaskManager database:', error);
-      logger.getInstance('BackgroundTaskManager').error('Database initialization failed', error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    }
-  }
+  // Legacy method removed - using PostgreSQL only
 
-  static getInstance(): BackgroundTaskManager {
+  static async getInstance(): Promise<BackgroundTaskManager> {
     if (!BackgroundTaskManager.instance) {
       try {
         console.log('Creating BackgroundTaskManager singleton instance...');
         BackgroundTaskManager.instance = new BackgroundTaskManager();
-        console.log('✓ BackgroundTaskManager singleton created successfully');
+        await BackgroundTaskManager.instance.initialize();
+        console.log('✅ BackgroundTaskManager singleton created successfully');
       } catch (error) {
-        console.error('Failed to create BackgroundTaskManager singleton:', error);
+        console.error('Failed to create BackgroundTaskManager singleton:', error instanceof Error ? error : new Error(String(error)));
         throw error;
       }
     }
+    // 确保实例已完全初始化
+    if (!BackgroundTaskManager.instance.isInitialized) {
+      await BackgroundTaskManager.instance.initialize();
+    }
     return BackgroundTaskManager.instance;
+  }
+
+  /**
+   * 完整初始化，包括数据库和任务加载
+   */
+  private async initialize(): Promise<void> {
+    await this.initializeDatabase();
+    await this.loadTasksFromDatabase();
+    this.startCleanupProcess();
   }
 
   private async loadTasksFromDatabase(): Promise<void> {
     const context = createErrorContext('load-tasks-from-database');
     
     await withErrorRecovery(async () => {
-      if (!this.db) {
-        console.log('Database not available, skipping task loading');
+      if (!this.db || !this.isInitialized) {
+        console.log('Database not available or not initialized, skipping task loading');
         return;
       }
       
-      const allTasks = this.db.getAllTasks();
-      for (const task of allTasks) {
-        // Check memory limits
-        if (this.tasks.size >= this.maxTasks) {
-          this.cleanupOldTasks();
+      try {
+        const allTasks = await this.db.getAllTasks();
+        console.log(`Found ${allTasks.length} tasks in database`);
+        
+        for (const task of allTasks) {
+          // Check memory limits
           if (this.tasks.size >= this.maxTasks) {
-            console.warn('Maximum task limit reached, skipping additional tasks');
-            break;
+            await this.cleanupOldTasks();
+            if (this.tasks.size >= this.maxTasks) {
+              console.warn('Maximum task limit reached, skipping additional tasks');
+              break;
+            }
+          }
+
+          this.tasks.set(task.taskId, task.progress);
+          this.taskOutputs.set(task.taskId, task.outputs);
+          this.taskParams.set(task.taskId, task.requestParams);
+          
+          if (task.progress.status === 'running') {
+            await this.updateTaskProgress(task.taskId, { status: 'paused' });
           }
         }
-
-        this.tasks.set(task.taskId, task.progress);
-        this.taskOutputs.set(task.taskId, task.outputs);
-        this.taskParams.set(task.taskId, task.requestParams);
-        
-        if (task.progress.status === 'running') {
-          await this.updateTaskProgress(task.taskId, { status: 'paused' });
-        }
+        console.log(`Successfully loaded ${this.tasks.size} tasks from database`);
+      } catch (error) {
+        console.error('Error loading tasks from database:', error);
+        throw error;
       }
-      console.log(`Loaded ${this.tasks.size} tasks from database`);
     }, context, async () => {
       // Fallback: Start with empty task state
       console.log('Starting with empty task state due to database loading failure');
@@ -238,7 +263,7 @@ class BackgroundTaskManager {
       
       console.log('BackgroundTaskManager cleanup completed');
     } catch (error) {
-      console.error('Cleanup process failed:', error);
+      console.error('Cleanup process failed:', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -297,7 +322,7 @@ class BackgroundTaskManager {
             }
           }
         } catch (error) {
-          console.error(`Failed to save trimmed outputs for task ${taskId}:`, error);
+          console.error(`Failed to save trimmed outputs for task ${taskId}:`, error instanceof Error ? error : new Error(String(error)));
         }
       }
     }
@@ -359,105 +384,10 @@ class BackgroundTaskManager {
           this.db.saveTask(taskId, task, outputs, requestParams);
         }
       }
-      
-      // Also save to V2 database for better performance and features
-      await this.saveTaskToV2Database(taskId, statusData);
     }, context, async () => {
       // Fallback: Log to console only
       console.warn(`Database save failed for task ${taskId}, continuing without persistence`);
     });
-  }
-
-  /**
-   * Save task data to V2 database with enhanced schema
-   */
-  private async saveTaskToV2Database(taskId: string, statusData?: any): Promise<void> {
-    try {
-      if (!this.dbV2) {
-        return; // V2 database not available, skip silently
-      }
-      
-      const task = this.tasks.get(taskId);
-      const outputs = this.taskOutputs.get(taskId) || [];
-      const requestParams = this.taskParams.get(taskId);
-      
-      if (!task || !requestParams) {
-        return;
-      }
-
-      // Convert outputs array to JSON string
-      const outputsJson = JSON.stringify(outputs);
-      
-      // Convert task progress to JSON string  
-      const progressJson = JSON.stringify(task);
-      
-      // Convert request params to JSON string
-      const requestParamsJson = JSON.stringify(requestParams);
-      
-      // Extract model configuration if available
-      const modelConfig = requestParams ? JSON.stringify({
-        aiProvider: requestParams.aiProvider,
-        thinkingModel: requestParams.thinkingModel,
-        taskModel: requestParams.taskModel,
-        searchProvider: requestParams.searchProvider
-      }) : null;
-
-      // Create V2 task data
-      const taskDataV2: TaskDataV2 = {
-        task_id: taskId,
-        current_step: task.step || null,
-        step_status: task.status || null,
-        finish_reason: statusData?.finishReason || null,
-        is_valid_complete: statusData?.isValidComplete ? 1 : 0,
-        retry_count: 0, // Will be updated later if retry logic is implemented
-        processing_time: null, // Will be calculated if needed
-        last_saved: new Date().toISOString(),
-        last_step_completed_at: task.status === 'completed' ? new Date().toISOString() : null,
-        progress: progressJson,
-        outputs: outputsJson,
-        request_params: requestParamsJson,
-        model_config: modelConfig,
-        error_message: task.error || null,
-        user_agent: null, // Could be extracted from request headers
-        ip_address: null, // Could be extracted from request
-        is_deleted: 0,
-        version: 1
-      };
-
-      // Save to V2 database
-      await this.dbV2.saveTask(taskDataV2);
-      
-    } catch (error) {
-      // Don't throw, just log - V2 database is supplementary for now
-      console.warn(`V2 database save failed for task ${taskId}:`, error);
-    }
-  }
-
-  /**
-   * Update task status in V2 database
-   */
-  private async updateTaskStatusV2(taskId: string, statusData: any): Promise<void> {
-    try {
-      if (!this.dbV2) {
-        return;
-      }
-
-      const statusDataV2: TaskStatusDataV2 = {
-        currentStep: statusData.currentStep || null,
-        stepStatus: statusData.stepStatus || null,
-        lastStepCompletedAt: statusData.lastStepCompletedAt || null,
-        finishReason: statusData.finishReason || null,
-        isValidComplete: statusData.isValidComplete || null,
-        retryCount: statusData.retryCount || null,
-        processingTime: statusData.processingTime || null,
-        modelConfig: statusData.modelConfig || null,
-        errorMessage: statusData.errorMessage || null
-      };
-
-      await this.dbV2.updateTaskStatus(taskId, statusDataV2);
-    } catch (error) {
-      console.warn(`V2 database status update failed for task ${taskId}:`, error);
-    }
   }
 
   generateTaskId(allParams: Record<string, any>): string {
@@ -494,35 +424,7 @@ class BackgroundTaskManager {
     return this.tasks.get(taskId) || null;
   }
 
-  /**
-   * Get task from V2 database for enhanced queries
-   */
-  async getTaskV2(taskId: string): Promise<TaskDataV2 | null> {
-    try {
-      if (!this.dbV2) {
-        return null;
-      }
-      return await this.dbV2.getTask(taskId);
-    } catch (error) {
-      console.warn(`Failed to get task from V2 database: ${taskId}`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Get task statistics from V2 database
-   */
-  async getTaskStatsV2() {
-    try {
-      if (!this.dbV2) {
-        return null;
-      }
-      return await this.dbV2.getTaskStats();
-    } catch (error) {
-      console.warn('Failed to get task statistics from V2 database', error);
-      return null;
-    }
-  }
+  // Legacy V2 database methods removed - using PostgreSQL only
 
   /**
    * 智能判断任务状态，决定是否可以直接返回缓存结果
@@ -542,6 +444,12 @@ class BackgroundTaskManager {
       const taskData = this.db.getTask(taskId);
       if (!taskData) {
         console.log(`Task ${taskId}: Not found in database`);
+        return 'invalid';
+      }
+      
+      // Handle undefined progress with safe defaults
+      if (!taskData.progress) {
+        console.log(`Task ${taskId}: Progress data missing - marking as invalid`);
         return 'invalid';
       }
       
@@ -603,7 +511,7 @@ class BackgroundTaskManager {
       return 'valid';
       
     } catch (error) {
-      console.error(`Error validating task ${taskId}:`, error);
+      console.error(`Error validating task ${taskId}:`, error instanceof Error ? error : new Error(String(error)));
       return 'invalid';
     }
   }
@@ -936,7 +844,7 @@ class BackgroundTaskManager {
         this.db.deleteTask(taskId);
       }
     } catch (error) {
-      console.error(`Failed to delete task ${taskId} from database:`, error);
+      console.error(`Failed to delete task ${taskId} from database:`, error instanceof Error ? error : new Error(String(error)));
     }
   }
 

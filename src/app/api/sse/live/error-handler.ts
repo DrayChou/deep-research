@@ -234,7 +234,7 @@ export class ErrorHandler {
     const message = error.message.toLowerCase();
     const operation = context.operation.toLowerCase();
 
-    if (message.includes('database') || message.includes('sqlite') || operation.includes('database')) {
+    if (message.includes('database') || operation.includes('database')) {
       return 'database';
     }
 

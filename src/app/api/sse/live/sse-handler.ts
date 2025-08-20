@@ -20,7 +20,7 @@ import { FinalReportValidator } from './final-report-validator';
 
 export class SSELiveHandler {
   private requestLogger: any;
-  private taskManager: BackgroundTaskManager;
+  private taskManager!: BackgroundTaskManager;
   private requestId: string;
   private clientId: string;
 
@@ -28,13 +28,19 @@ export class SSELiveHandler {
     private req: NextRequest
   ) {
     this.requestLogger = logger.getInstance('SSE-Live');
-    this.taskManager = BackgroundTaskManager.getInstance();
     this.requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     this.clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  async initialize(): Promise<void> {
+    this.taskManager = await BackgroundTaskManager.getInstance();
+  }
+
   async handleRequest(): Promise<NextResponse> {
     this.logRequestStart();
+    
+    // 确保任务管理器已初始化
+    await this.initialize();
     
     // Authentication
     const authResult = await this.authenticate();
@@ -214,7 +220,7 @@ export class SSELiveHandler {
         config
       };
     } catch (error) {
-      this.requestLogger.error('Configuration build failed', error);
+      this.requestLogger.error('Configuration build failed', error instanceof Error ? error : new Error(String(error)));
       return null;
     }
   }

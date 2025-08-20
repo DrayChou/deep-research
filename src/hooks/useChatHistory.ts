@@ -79,7 +79,7 @@ export const useChatHistory = () => {
       // 如果没有提供topicId或加载失败，则在用户开始研究时创建新话题
       return null;
     } catch (error) {
-      console.error('[useChatHistory] 初始化话题失败：', error);
+      console.error('[useChatHistory] 初始化话题失败：', error instanceof Error ? error : new Error(String(error)));
       return null;
     } finally {
       setIsLoadingHistory(false);
@@ -97,7 +97,7 @@ export const useChatHistory = () => {
       const taskStore = useTaskStore.getState();
       await chatHistoryService.saveResearchSnapshot(authStore.topicId, stage, taskStore.backup());
     } catch (error) {
-      console.error('[useChatHistory] 保存状态快照失败:', error);
+      console.error('[useChatHistory] 保存状态快照失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId, authStore.jwt]);
 
@@ -151,7 +151,7 @@ export const useChatHistory = () => {
       }
 
     } catch (error) {
-      console.error('[useChatHistory] 创建话题失败:', error);
+      console.error('[useChatHistory] 创建话题失败:', error instanceof Error ? error : new Error(String(error)));
       
       // 简化错误处理：检查JWT过期
       if (error instanceof Error && (error.message.includes('401') || error.message.includes('Unauthorized'))) {
@@ -168,7 +168,7 @@ export const useChatHistory = () => {
     try {
       await chatHistoryService.saveUserMessage(authStore.topicId, content, 'user_query');
     } catch (error) {
-      console.error('[useChatHistory] 保存用户问题失败:', error);
+      console.error('[useChatHistory] 保存用户问题失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId]);
 
@@ -179,7 +179,7 @@ export const useChatHistory = () => {
         feedback: content
       });
     } catch (error) {
-      console.error('[useChatHistory] 保存用户反馈失败:', error);
+      console.error('[useChatHistory] 保存用户反馈失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId]);
 
@@ -190,7 +190,7 @@ export const useChatHistory = () => {
         finalReport: content
       });
     } catch (error) {
-      console.error('[useChatHistory] 保存最终报告失败:', error);
+      console.error('[useChatHistory] 保存最终报告失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId]);
 
@@ -199,7 +199,7 @@ export const useChatHistory = () => {
     try {
       await chatHistoryService.updateTopicStatus(authStore.topicId, 'completed');
     } catch (error) {
-      console.error('[useChatHistory] 标记话题完成失败:', error);
+      console.error('[useChatHistory] 标记话题完成失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId]);
 
@@ -212,7 +212,7 @@ export const useChatHistory = () => {
     try {
       await chatHistoryService.updateTopicStatus(authStore.topicId, status, data);
     } catch (error) {
-      console.error('[useChatHistory] 更新话题状态失败:', error);
+      console.error('[useChatHistory] 更新话题状态失败:', error instanceof Error ? error : new Error(String(error)));
     }
   }, [authStore.topicId, authStore.jwt]);
 
@@ -237,7 +237,7 @@ export const useChatHistory = () => {
             await chatHistoryService.updateTopicTitle(authStore.topicId, currentTitle);
             console.log('[useChatHistory] 话题标题更新成功');
           } catch (error) {
-            console.error('[useChatHistory] 更新话题标题失败:', error);
+            console.error('[useChatHistory] 更新话题标题失败:', error instanceof Error ? error : new Error(String(error)));
           }
         }, 1000); // 1秒防抖
         
