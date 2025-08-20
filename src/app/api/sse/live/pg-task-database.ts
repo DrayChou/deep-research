@@ -176,7 +176,7 @@ export class PostgreSQLTaskDatabase implements DatabaseInterface {
     return {
       taskId: pgTask.task_id,
       progress,
-      outputs: (pgTask.outputs as any)?.messages || [],
+      outputs: Array.isArray(pgTask.outputs) ? pgTask.outputs : (pgTask.outputs as any)?.messages || [],
       lastSaved: pgTask.last_saved.toISOString(),
       requestParams: pgTask.request_params as TaskRequestParams,
       createdAt: pgTask.created_at?.toISOString() || pgTask.last_saved.toISOString(),
@@ -601,7 +601,7 @@ export class AsyncPostgreSQLTaskDatabase implements AsyncDatabaseInterface {
     return {
       taskId: pgTask.task_id,
       progress,
-      outputs: (pgTask.outputs as any)?.messages || [],
+      outputs: Array.isArray(pgTask.outputs) ? pgTask.outputs : (pgTask.outputs as any)?.messages || [],
       lastSaved: pgTask.last_saved.toISOString(),
       requestParams: pgTask.request_params as TaskRequestParams,
       createdAt: pgTask.created_at?.toISOString() || pgTask.last_saved.toISOString(),

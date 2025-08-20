@@ -7,7 +7,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import DeepResearch from "@/utils/deep-research";
 import { multiApiKeyPolling } from "@/utils/model";
 import { getProviderModelFields } from "@/utils/provider-config";
-import { splitTextByCompleteLines } from "@/utils/text";
 import {
   optionalJwtAuthMiddleware,
   getAIProviderConfig,
@@ -15,7 +14,6 @@ import {
 } from "../../utils";
 import { logger } from "@/utils/logger";
 import BackgroundTaskManager from "./background-task-manager";
-import { FinalReportValidator } from './final-report-validator';
 
 
 export class SSELiveHandler {
@@ -32,15 +30,17 @@ export class SSELiveHandler {
     this.clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  async initialize(): Promise<void> {
-    this.taskManager = await BackgroundTaskManager.getInstance();
+  private async initializeTaskManager() {
+    if (!this.taskManager) {
+      this.taskManager = await BackgroundTaskManager.getInstance();
+    }
   }
 
   async handleRequest(): Promise<NextResponse> {
     this.logRequestStart();
     
-    // 确保任务管理器已初始化
-    await this.initialize();
+    // Initialize task manager
+    await this.initializeTaskManager();
     
     // Authentication
     const authResult = await this.authenticate();
@@ -54,40 +54,69 @@ export class SSELiveHandler {
       return this.createErrorResponse('Configuration error', 500);
     }
 
-    // Task management with intelligent retry logic
+    // 恢复原始的缓存逻辑
     const taskId = this.generateTaskId(config);
-    const existingTask = this.taskManager.getTask(taskId);
-
-    // Use async validation for better database access
-    const validationResult = await this.taskManager.getTaskValidationResultAsync(taskId, config.forceRestart);
     
-    if (existingTask && validationResult === 'invalid') {
-      // Task exists but is invalid (failed or has invalid finishReason)
-      this.requestLogger.info("Found invalid task, archiving and restarting", { 
-        taskId,
-        taskStatus: existingTask.status,
+    // 添加调试信息
+    this.requestLogger.info("🔍 开始缓存检查", { 
+      taskId: taskId.substring(0, 16) + '...', 
+      forceRestart: config.forceRestart,
+      taskManagerInitialized: !!this.taskManager
+    });
+    
+    const existingTask = await this.taskManager.getTask(taskId);
+    this.requestLogger.info("📋 现有任务检查", { 
+      taskId: taskId.substring(0, 16) + '...', 
+      existingTask: !!existingTask,
+      taskStatus: existingTask?.status,
+      taskMessages: existingTask?.messages?.length
+    });
+    
+    if (!config.forceRestart) {
+      const validationResult = await this.taskManager.getTaskValidationResult(taskId);
+      this.requestLogger.info("✅ 缓存验证结果", { 
+        taskId: taskId.substring(0, 16) + '...', 
         validationResult,
-        forceRestart: config.forceRestart,
-        reason: config.forceRestart ? "Force restart requested" : "Task is invalid or failed - needs restart" 
+        existingTask: !!existingTask
       });
       
-      // Archive the invalid task for debugging
-      await this.taskManager.archiveInvalidTask(taskId, config.forceRestart ? "Force restart requested" : "Invalid task state - restarting");
-    } else if (existingTask && validationResult === 'running') {
-      // Task is currently running, let it continue
-      this.requestLogger.info("Found running task, connecting to existing stream", { 
-        taskId,
-        taskStatus: existingTask.status,
-        validationResult,
-        reason: "Task is currently running" 
+      if (existingTask && validationResult === 'valid') {
+        this.requestLogger.info("🎯 Cache hit - returning cached result", { 
+          taskId: taskId.substring(0, 16) + '...', 
+          validationResult,
+          taskStatus: existingTask.status 
+        });
+        
+        const outputs = await this.taskManager.getTaskOutput(taskId);
+        this.requestLogger.info("📤 获取缓存输出", { 
+          taskId: taskId.substring(0, 16) + '...', 
+          outputCount: outputs.length
+        });
+        const cacheStream = this.createCacheStream(outputs);
+        return this.createSSEResponse(cacheStream, config);
+      }
+      
+      if (existingTask && validationResult === 'invalid') {
+        this.requestLogger.info("⚠️ Found invalid task, will restart", { 
+          taskId: taskId.substring(0, 16) + '...',
+          taskStatus: existingTask.status,
+          validationResult
+        });
+      }
+      
+      if (!existingTask) {
+        this.requestLogger.info("🆕 任务不存在，创建新任务", { 
+          taskId: taskId.substring(0, 16) + '...'
+        });
+      }
+    } else {
+      this.requestLogger.info("🔄 强制重启，跳过缓存", { 
+        taskId: taskId.substring(0, 16) + '...'
       });
     }
 
-    // Get task status after potential archiving
-    const finalExistingTask = this.taskManager.getTask(taskId);
-
-    // Create SSE stream
-    const stream = this.createSSEStream(taskId, finalExistingTask, config);
+    // 执行新任务（使用后台任务分离）
+    const stream = this.createBackgroundTaskStream(taskId, config);
     
     return this.createSSEResponse(stream, config);
   }
@@ -254,28 +283,118 @@ export class SSELiveHandler {
     return taskId;
   }
 
-  private createSSEStream(taskId: string, existingTask: any, config: any): ReadableStream {
+  /**
+   * 创建后台任务流（使用BackgroundTaskManager的分离机制）
+   */
+  private createBackgroundTaskStream(taskId: string, config: any): ReadableStream {
     const encoder = new TextEncoder();
     
     return new ReadableStream({
       start: async (controller) => {
-        const streamHandler = new SSEStreamHandler(
-          controller,
-          encoder,
-          this.req,
-          this.taskManager,
-          this.requestLogger,
-          this.requestId,
-          this.clientId,
-          taskId,
-          existingTask,
-          config
-        );
+        try {
+          // 构建任务请求参数
+          const taskParams = {
+            query: config.query,
+            language: config.language,
+            aiProvider: config.aiConfig.provider,
+            thinkingModel: Array.isArray(config.thinkingModel) ? config.thinkingModel.join(',') : config.thinkingModel,
+            taskModel: Array.isArray(config.taskModel) ? config.taskModel.join(',') : config.taskModel,
+            searchProvider: config.searchConfig.searchProvider,
+            maxResult: config.maxResult,
+            enableCitationImage: config.enableCitationImage,
+            enableReferences: config.enableReferences,
+            userId: config.allSearchParams.userId,
+            userMessageId: config.allSearchParams.userMessageId,
+            topicId: config.allSearchParams.topicId,
+            mode: config.allSearchParams.mode,
+            dataBaseUrl: config.allSearchParams.dataBaseUrl
+          };
 
-        await streamHandler.handleStream();
+          // 创建DeepResearch实例
+          const deepResearch = new DeepResearch({
+            language: config.language,
+            AIProvider: {
+              baseURL: config.aiConfig.apiProxy,
+              apiKey: multiApiKeyPolling(config.aiConfig.apiKey),
+              provider: config.aiConfig.provider,
+              thinkingModel: config.thinkingModel,
+              taskModel: config.taskModel,
+            },
+            searchProvider: {
+              baseURL: config.searchConfig.apiProxy,
+              apiKey: config.searchConfig.apiKey,
+              provider: config.searchConfig.searchProvider,
+              maxResult: config.maxResult,
+            }
+          });
+
+          // 定义外部回调，用于实时流式传输
+          const externalOnMessage = (event: string, data: any) => {
+            if (event === "message") {
+              // 实时传输消息到客户端
+              controller.enqueue(encoder.encode(data.text));
+            } else if (event === "progress") {
+              this.requestLogger.debug(`[${data.step}]: ${data.status}`);
+              if (data.step === "final-report" && data.status === "end") {
+                // 任务完成，关闭SSE流
+                this.requestLogger.info("💾 后台任务完成，关闭客户端流", { 
+                  taskId: taskId.substring(0, 16) + '...'
+                });
+                controller.close();
+              }
+            } else if (event === "error") {
+              this.requestLogger.error('Background task failed', data);
+              controller.close();
+            }
+          };
+
+          // 启动后台任务（独立执行，客户端断开不影响）
+          await this.taskManager.startBackgroundTask(
+            taskId, 
+            deepResearch, 
+            config.query,
+            config.enableCitationImage,
+            config.enableReferences,
+            taskParams,
+            externalOnMessage  // 提供实时回调
+          );
+
+        } catch (error) {
+          this.requestLogger.error('Background task startup failed', error instanceof Error ? error : new Error(String(error)));
+          controller.close();
+        }
       }
     });
   }
+
+
+  /**
+   * 创建缓存流式输出
+   */
+  private createCacheStream(outputs: string[]): ReadableStream {
+    const encoder = new TextEncoder();
+    let outputIndex = 0;
+    
+    return new ReadableStream({
+      start(controller) {
+        const streamOutputs = () => {
+          if (outputIndex < outputs.length) {
+            const output = outputs[outputIndex++];
+            controller.enqueue(encoder.encode(output));
+            
+            // 缓存返回应该更快一些
+            setTimeout(streamOutputs, 10);
+          } else {
+            controller.close();
+          }
+        };
+        
+        // 立即开始输出
+        streamOutputs();
+      }
+    });
+  }
+
 
   private createSSEResponse(stream: ReadableStream, config: any): NextResponse {
     const taskId = this.generateTaskId(config);
@@ -292,234 +411,5 @@ export class SSELiveHandler {
         "X-Task-ID": taskId,
       }
     });
-  }
-}
-
-class SSEStreamHandler {
-  private isClientConnected: boolean = true;
-
-  constructor(
-    private controller: ReadableStreamDefaultController,
-    private encoder: TextEncoder,
-    private req: NextRequest,
-    private taskManager: BackgroundTaskManager,
-    private requestLogger: any,
-    private requestId: string,
-    private clientId: string,
-    private taskId: string,
-    private existingTask: any,
-    private config: any
-  ) {
-    this.setupConnectionHandlers();
-  }
-
-  private setupConnectionHandlers(): void {
-    this.req.signal.addEventListener("abort", () => {
-      this.requestLogger.info("Client disconnected", { 
-        taskId: this.taskId, 
-        clientId: this.clientId 
-      });
-      this.isClientConnected = false;
-      this.taskManager.unregisterClient(this.taskId);
-    });
-  }
-
-  async handleStream(): Promise<void> {
-    this.taskManager.registerClient(this.taskId);
-    
-    this.requestLogger.info("Client connected", { 
-      taskId: this.taskId, 
-      clientId: this.clientId,
-      existingTaskStatus: this.existingTask?.status,
-      isTaskRunning: this.taskManager.isTaskRunning(this.taskId),
-      clientCount: this.taskManager.getClientCount(this.taskId)
-    });
-
-    // Handle completed tasks
-    if (this.existingTask?.status === 'completed') {
-      await this.handleCompletedTask();
-      return;
-    }
-
-    // Handle running/paused tasks
-    if (this.existingTask?.status === 'running' || this.existingTask?.status === 'paused') {
-      await this.handleExistingTask();
-      return;
-    }
-
-    // Handle new tasks
-    await this.handleNewTask();
-  }
-
-  private async handleCompletedTask(): Promise<void> {
-    this.requestLogger.info("Found completed task, validating cache quality", { taskId: this.taskId });
-    
-    // 验证缓存的final-report完整性
-    const validationResult = FinalReportValidator.validateTaskCache(this.existingTask);
-    
-    if (validationResult.isValid) {
-      this.requestLogger.info("Cache validation passed, returning cached result", { 
-        taskId: this.taskId,
-        validation: FinalReportValidator.getValidationMessage(validationResult)
-      });
-      
-      const outputs = this.taskManager.getTaskOutput(this.taskId);
-      await this.streamOutputs(outputs);
-      this.controller.close();
-    } else {
-      this.requestLogger.warn("Cache validation failed, restarting task", { 
-        taskId: this.taskId,
-        reason: validationResult.reason,
-        validation: FinalReportValidator.getValidationMessage(validationResult)
-      });
-      
-      // 归档无效缓存任务
-      await this.taskManager.archiveInvalidTask(this.taskId, `Invalid final-report cache: ${validationResult.reason}`);
-      
-      // 重新开始执行任务
-      await this.handleNewTask();
-    }
-  }
-
-  private async handleExistingTask(): Promise<void> {
-    this.requestLogger.info("Connecting to existing task", { 
-      taskId: this.taskId, 
-      clientId: this.clientId,
-      status: this.existingTask.status,
-      isRunning: this.taskManager.isTaskRunning(this.taskId),
-      clientCount: this.taskManager.getClientCount(this.taskId)
-    });
-
-    // Replay existing outputs
-    const existingOutputs = this.taskManager.getTaskOutput(this.taskId);
-    await this.streamOutputs(existingOutputs);
-
-    // Monitor for new output
-    await this.monitorNewOutput(existingOutputs.length);
-  }
-
-  private async handleNewTask(): Promise<void> {
-    this.requestLogger.info("Starting new background task", { taskId: this.taskId });
-
-    const deepResearch = this.createDeepResearchInstance();
-    
-    // Start background task with SSE callback
-    this.taskManager.startBackgroundTask(
-      this.taskId,
-      deepResearch,
-      this.config.query,
-      this.config.enableCitationImage,
-      this.config.enableReferences,
-      this.generateTaskParams(),
-      (event, data) => {
-        // SSE流式输出回调
-        if (event === "message" && this.isClientConnected) {
-          this.controller.enqueue(this.encoder.encode(data.text));
-        } else if (event === "progress") {
-          this.requestLogger.debug(
-            `[${data.step}]: ${data.name ? `"${data.name}" ` : ""}${data.status}`
-          );
-          if (data.step === "final-report" && data.status === "end") {
-            this.controller.close();
-          }
-        } else if (event === "error") {
-          console.error(data);
-          if (this.isClientConnected) {
-            this.controller.close();
-          }
-        }
-      }
-    );
-
-    // Monitor output
-    await this.monitorNewOutput(0);
-  }
-
-  private async streamOutputs(outputs: string[]): Promise<void> {
-    for (const output of outputs) {
-      if (!this.isClientConnected) break;
-      
-      const lineChunks = splitTextByCompleteLines(output);
-      for (const chunk of lineChunks) {
-        if (!this.isClientConnected) break;
-        this.controller.enqueue(this.encoder.encode(chunk));
-        await new Promise(resolve => setTimeout(resolve, 30));
-      }
-    }
-  }
-
-  private async monitorNewOutput(startIndex: number): Promise<void> {
-    let outputIndex = startIndex;
-    
-    while (this.isClientConnected) {
-      const currentTask = this.taskManager.getTask(this.taskId);
-      if (!currentTask) break;
-
-      const currentOutputs = this.taskManager.getTaskOutput(this.taskId);
-      
-      // Stream new outputs
-      for (let i = outputIndex; i < currentOutputs.length; i++) {
-        if (!this.isClientConnected) break;
-        
-        const lineChunks = splitTextByCompleteLines(currentOutputs[i]);
-        for (const chunk of lineChunks) {
-          if (!this.isClientConnected) break;
-          this.controller.enqueue(this.encoder.encode(chunk));
-          await new Promise(resolve => setTimeout(resolve, 30));
-        }
-        outputIndex++;
-      }
-
-      // Check if task is complete
-      if (currentTask.status === 'completed' || currentTask.status === 'failed') {
-        this.controller.close();
-        break;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }
-
-  private createDeepResearchInstance(): DeepResearch {
-    const processedApiKey = multiApiKeyPolling(this.config.aiConfig.apiKey);
-    
-    this.requestLogger.debug('Search configuration processed', {
-      hasApiKey: !!this.config.searchConfig.apiKey,
-      searchKeyCount: this.config.searchConfig.apiKey ? this.config.searchConfig.apiKey.split(',').length : 0,
-      searchProvider: this.config.searchConfig.searchProvider
-    });
-
-    return new DeepResearch({
-      language: this.config.language,
-      AIProvider: {
-        baseURL: this.config.aiConfig.apiProxy,
-        apiKey: processedApiKey,
-        provider: this.config.aiConfig.provider,
-        thinkingModel: this.config.thinkingModel, // Now it's an array
-        taskModel: this.config.taskModel, // Now it's an array
-      },
-      searchProvider: {
-        baseURL: this.config.searchConfig.apiProxy,
-        apiKey: this.config.searchConfig.apiKey,
-        provider: this.config.searchConfig.searchProvider,
-        maxResult: this.config.maxResult,
-      },
-      // onMessage将在startBackgroundTask中设置
-    });
-  }
-
-  private generateTaskParams(): any {
-    return {
-      ...this.config.allSearchParams,
-      aiProvider: this.config.aiConfig.provider,
-      thinkingModel: Array.isArray(this.config.thinkingModel) ? this.config.thinkingModel.join(',') : this.config.thinkingModel,
-      taskModel: Array.isArray(this.config.taskModel) ? this.config.taskModel.join(',') : this.config.taskModel,
-      searchProvider: this.config.searchConfig.searchProvider,
-      query: this.config.query,
-      language: this.config.language,
-      maxResult: this.config.maxResult,
-      enableCitationImage: this.config.enableCitationImage,
-      enableReferences: this.config.enableReferences
-    };
   }
 }

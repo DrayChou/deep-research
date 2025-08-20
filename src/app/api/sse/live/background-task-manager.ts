@@ -213,7 +213,7 @@ class BackgroundTaskManager {
     }
   }
 
-  private performCleanup(): void {
+  private async performCleanup(): Promise<void> {
     try {
       const now = Date.now();
       const timeSinceLastCleanup = now - this.lastCleanupTime;
@@ -241,13 +241,13 @@ class BackgroundTaskManager {
       });
 
       // Use gradual cleanup based on pressure level
-      const cleanupPerformed = this.performGradualCleanup();
+      const cleanupPerformed = await this.performGradualCleanup();
       
       if (!cleanupPerformed) {
         // Normal maintenance cleanup
         this.cleanupOldTasks();
         this.cleanupOrphanedConnections();
-        this.cleanupLargeOutputs();
+        await this.cleanupLargeOutputs();
       }
 
       this.lastCleanupTime = now;
@@ -275,8 +275,9 @@ class BackgroundTaskManager {
     const tasksToDelete: string[] = [];
     
     for (const [taskId, task] of this.tasks.entries()) {
-      const taskAge = Date.now() - new Date(task.timestamp).getTime();
-      if (task.status === 'completed' && taskAge > oneDayAgo) {
+      const taskTimestamp = new Date(task.timestamp).getTime();
+      if (task.status === 'completed' && taskTimestamp < oneDayAgo) {
+        console.log(`激进清理：删除超过1天的任务 ${taskId.substring(0, 16)}...`);
         tasksToDelete.push(taskId);
       }
     }
@@ -290,7 +291,7 @@ class BackgroundTaskManager {
     console.log(`Aggressively deleted ${Math.min(maxDelete, tasksToDelete.length)} completed tasks`);
   }
 
-  private cleanupLargeOutputs(): void {
+  private async cleanupLargeOutputs(): Promise<void> {
     // Clean up tasks with very large outputs
     const maxOutputSize = 1000; // Maximum lines per task
     const tasksToClean: string[] = [];
@@ -318,7 +319,7 @@ class BackgroundTaskManager {
             const task = this.tasks.get(taskId);
             const requestParams = this.taskParams.get(taskId);
             if (task && requestParams) {
-              this.db.saveTask(taskId, task, trimmedOutputs, requestParams);
+              await this.db.saveTask(taskId, task, trimmedOutputs, requestParams);
             }
           }
         } catch (error) {
@@ -379,10 +380,17 @@ class BackgroundTaskManager {
       
       if (task && requestParams) {
         if (statusData && 'saveTaskWithStatus' in this.db) {
-          this.db.saveTaskWithStatus(taskId, task, outputs, requestParams, statusData);
+          await this.db.saveTaskWithStatus(taskId, task, outputs, requestParams, statusData);
         } else {
-          this.db.saveTask(taskId, task, outputs, requestParams);
+          await this.db.saveTask(taskId, task, outputs, requestParams);
         }
+      } else {
+        console.warn(`Cannot save task ${taskId} to database:`, {
+          hasTask: !!task,
+          hasRequestParams: !!requestParams,
+          taskStatus: task?.status,
+          outputCount: outputs.length
+        });
       }
     }, context, async () => {
       // Fallback: Log to console only
@@ -420,8 +428,214 @@ class BackgroundTaskManager {
     return hash.substring(0, 32);
   }
 
-  getTask(taskId: string): TaskProgress | null {
-    return this.tasks.get(taskId) || null;
+  async getTask(taskId: string): Promise<TaskProgress | null> {
+    // 首先检查内存中的运行中任务
+    const memoryTask = this.tasks.get(taskId);
+    if (memoryTask && memoryTask.status === 'running') {
+      return memoryTask;
+    }
+    
+    // 从数据库获取已完成的任务
+    if (this.db) {
+      try {
+        const dbTask = await this.db.getTask(taskId);
+        if (dbTask && dbTask.progress) {
+          // 转换数据库格式到内存格式
+          return {
+            step: dbTask.currentStep || dbTask.progress.step || 'unknown',
+            percentage: dbTask.progress.percentage || 0,
+            status: dbTask.progress.status as 'running' | 'paused' | 'completed' | 'failed',
+            messages: (dbTask.outputs?.messages) || dbTask.progress.messages || [],
+            timestamp: dbTask.lastSaved || dbTask.progress.timestamp || new Date().toISOString()
+          };
+        }
+      } catch (error) {
+        console.error(`Error getting task ${taskId} from database:`, error);
+      }
+    }
+    
+    return null;
+  }
+
+  getDatabase() {
+    return this.db;
+  }
+
+  /**
+   * 设置任务为完成状态（保存到内存和数据库）
+   */
+  setTaskCompleted(taskId: string, messages: string[]): void {
+    // 保存到内存
+    this.tasks.set(taskId, {
+      step: 'final-report',
+      percentage: 100,
+      status: 'completed',
+      messages,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 同时保存到taskOutputs Map中，保持向后兼容
+    this.taskOutputs.set(taskId, messages);
+    
+    // 确保有最基本的请求参数，否则数据库保存会失败
+    if (!this.taskParams.has(taskId)) {
+      // 提供默认的请求参数以避免数据库保存错误
+      this.taskParams.set(taskId, {
+        query: 'Unknown', // 从messages中可能可以推断，但现在用默认值
+        language: 'zh-CN',
+        aiProvider: 'unknown',
+        thinkingModel: 'unknown',
+        taskModel: 'unknown',
+        searchProvider: 'unknown',
+        maxResult: 50,
+        enableCitationImage: true,
+        enableReferences: true
+      });
+    }
+    
+    // 异步保存到数据库（不阻塞响应）
+    const statusData = {
+      currentStep: 'final-report',
+      stepStatus: 'completed',
+      finishReason: 'stop',
+      isValidComplete: true,
+      lastStepCompletedAt: new Date().toISOString()
+    };
+    
+    this.saveTaskToDatabase(taskId, statusData).catch(error => {
+      console.error(`Failed to save completed task ${taskId} to database:`, error);
+    });
+  }
+
+  /**
+   * 设置任务为完成状态（带配置参数，用于SSE Handler）
+   */
+  setTaskCompletedWithConfig(taskId: string, messages: string[], config: any): void {
+    // 保存到内存
+    this.tasks.set(taskId, {
+      step: 'final-report',
+      percentage: 100,
+      status: 'completed',
+      messages,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 同时保存到taskOutputs Map中，保持向后兼容
+    this.taskOutputs.set(taskId, messages);
+    
+    // 保存真实的请求参数
+    this.taskParams.set(taskId, config);
+    
+    // 异步保存到数据库（不阻塞响应）
+    const statusData = {
+      currentStep: 'final-report',
+      stepStatus: 'completed',
+      finishReason: 'stop',
+      isValidComplete: true,
+      lastStepCompletedAt: new Date().toISOString()
+    };
+    
+    this.saveTaskToDatabase(taskId, statusData).catch(error => {
+      console.error(`Failed to save completed task ${taskId} to database:`, error);
+    });
+  }
+
+  /**
+   * 获取任务输出 - 从数据库获取已完成任务的输出
+   */
+  async getTaskOutput(taskId: string): Promise<string[]> {
+    // 优先从内存获取运行中任务的输出
+    const memoryOutputs = this.taskOutputs.get(taskId);
+    if (memoryOutputs) {
+      return memoryOutputs;
+    }
+    
+    // 从内存TaskProgress获取运行中任务
+    const memoryTask = this.tasks.get(taskId);
+    if (memoryTask && memoryTask.messages) {
+      return memoryTask.messages;
+    }
+    
+    // 从数据库获取已完成任务的输出
+    if (this.db) {
+      try {
+        const dbTask = await this.db.getTask(taskId);
+        if (dbTask && dbTask.outputs) {
+          // 处理数据库格式转换后的数据结构
+          if (Array.isArray(dbTask.outputs)) {
+            // 转换后的格式：outputs直接是string[]数组
+            return dbTask.outputs;
+          } else if (dbTask.outputs.messages && Array.isArray(dbTask.outputs.messages)) {
+            // 原始数据库格式：outputs是{messages: string[]}对象
+            return dbTask.outputs.messages;
+          }
+        }
+      } catch (error) {
+        console.error(`Error getting task output ${taskId} from database:`, error);
+      }
+    }
+    
+    return [];
+  }
+
+  /**
+   * 异步版本的任务验证 - 从数据库验证任务状态
+   */
+  async getTaskValidationResult(taskId: string): Promise<'valid' | 'running' | 'invalid'> {
+    // 首先检查内存中的运行中任务
+    const memoryTask = this.tasks.get(taskId);
+    if (memoryTask && memoryTask.status === 'running') {
+      return 'running';
+    }
+    
+    // 从数据库检查已完成的任务
+    if (this.db) {
+      try {
+        const dbTask = await this.db.getTask(taskId);
+        if (!dbTask || !dbTask.progress) {
+          return 'invalid';
+        }
+        
+        // 检查任务是否正在运行
+        if (dbTask.progress.status === 'running') {
+          return 'running';
+        }
+        
+        // 检查任务是否已完成且有输出
+        // 处理数据库格式转换后的数据结构
+        let outputMessages: string[] = [];
+        
+        if (dbTask.outputs) {
+          if (Array.isArray(dbTask.outputs)) {
+            // 转换后的格式：outputs直接是string[]数组
+            outputMessages = dbTask.outputs;
+          } else if (dbTask.outputs.messages && Array.isArray(dbTask.outputs.messages)) {
+            // 原始数据库格式：outputs是{messages: string[]}对象
+            outputMessages = dbTask.outputs.messages;
+          }
+        }
+        
+        if (dbTask.progress.status === 'completed' && outputMessages.length > 0) {
+          // 检查是否包含有效的final-report内容
+          const allOutputContent = outputMessages.join('');
+          const hasStartTag = allOutputContent.includes('<final-report>');
+          const hasEndTag = allOutputContent.includes('</final-report>');
+          const hasSubstantialContent = allOutputContent.length > 1000;
+          const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
+          
+          if (hasValidFinalReport) {
+            return 'valid';
+          }
+        }
+        
+        return 'invalid';
+      } catch (error) {
+        console.error(`Error validating task ${taskId} from database:`, error);
+        return 'invalid';
+      }
+    }
+    
+    return 'invalid';
   }
 
   // Legacy V2 database methods removed - using PostgreSQL only
@@ -433,6 +647,7 @@ class BackgroundTaskManager {
    * - 'running': 任务正在运行中 
    * - 'invalid': 任务无效，需要归档重试
    */
+
   /**
    * 异步获取并验证任务状态
    */
@@ -550,99 +765,16 @@ class BackgroundTaskManager {
     return 'valid';
   }
 
-  getTaskValidationResult(taskId: string): 'valid' | 'running' | 'invalid' {
-    
-    try {
-      if (!this.db) {
-        console.log(`Task ${taskId}: Database not available, cannot validate`);
-        return 'invalid';
-      }
-      
-      const taskData = this.db.getTask(taskId);
-      if (!taskData) {
-        console.log(`Task ${taskId}: Not found in database (sync method)`);
-        return 'invalid';
-      }
-      
-      // Handle undefined progress with safe defaults
-      if (!taskData.progress) {
-        console.log(`Task ${taskId}: Progress data missing - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查任务是否正在运行
-      if (taskData.progress.status === 'running') {
-        console.log(`Task ${taskId}: Task is currently running, status: ${taskData.progress.status}, step: ${taskData.currentStep}`);
-        return 'running';
-      }
-      
-      // 检查任务是否已完成
-      if (taskData.progress.status !== 'completed') {
-        console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查是否到达了final-report步骤
-      if (taskData.currentStep !== 'final-report') {
-        console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查final-report步骤是否正常完成
-      if (taskData.stepStatus !== 'completed') {
-        console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查finishReason是否为正常的stop
-      if (taskData.finishReason !== 'stop') {
-        console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop' - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查是否标记为有效完成
-      if (!taskData.isValidComplete) {
-        console.log(`Task ${taskId}: Not marked as valid complete - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查输出内容是否存在且有效
-      if (!taskData.outputs || taskData.outputs.length === 0) {
-        console.log(`Task ${taskId}: No outputs found - marking as invalid`);
-        return 'invalid';
-      }
-      
-      // 检查是否包含有效的final-report内容 - 修复逻辑，检查整体内容而不是单个chunk
-      const allOutputContent = taskData.outputs.join('');
-      const hasStartTag = allOutputContent.includes('<final-report>');
-      const hasEndTag = allOutputContent.includes('</final-report>');
-      const hasSubstantialContent = allOutputContent.length > 1000; // 至少1000字符表示有实质内容
-      const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
-      
-      if (!hasValidFinalReport) {
-        console.log(`Task ${taskId}: No valid final-report content found - marking as invalid`);
-        return 'invalid';
-      }
-      
-      console.log(`Task ${taskId}: Valid for direct return`);
-      return 'valid';
-      
-    } catch (error) {
-      console.error(`Error validating task ${taskId}:`, error instanceof Error ? error : new Error(String(error)));
-      return 'invalid';
-    }
-  }
+  // PostgreSQL数据库版本已删除 - 使用上面的简化内存缓存版本
 
   /**
    * 向后兼容的方法
    */
-  isTaskValidForDirectReturn(taskId: string): boolean {
-    return this.getTaskValidationResult(taskId) === 'valid';
+  async isTaskValidForDirectReturn(taskId: string): Promise<boolean> {
+    return (await this.getTaskValidationResult(taskId)) === 'valid';
   }
 
-  getTaskOutput(taskId: string): string[] {
-    return this.taskOutputs.get(taskId) || [];
-  }
+  // PostgreSQL数据库版本已删除 - 使用上面的增强内存缓存版本
 
   /**
    * 归档无效任务，为重新执行做准备
@@ -699,26 +831,27 @@ class BackgroundTaskManager {
     }
   }
 
-  private performGradualCleanup(): boolean {
+  private async performGradualCleanup(): Promise<boolean> {
     const startMemory = process.memoryUsage().heapUsed;
     let cleaned = false;
 
     switch (this.memoryPressureLevel) {
       case 1: // Warning - light cleanup
-        this.cleanupLargeOutputs();
+        await this.cleanupLargeOutputs();
         this.cleanupOrphanedConnections();
         cleaned = true;
         break;
         
       case 2: // Critical - moderate cleanup
         this.cleanupOldTasks();
-        this.cleanupLargeOutputs();
+        await this.cleanupLargeOutputs();
         this.cleanupOrphanedConnections();
-        // Remove completed tasks older than 2 hours
-        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        // Remove completed tasks older than 24 hours (instead of 2 hours for better caching)
+        const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
         for (const [taskId, task] of this.tasks.entries()) {
           if (task.status === 'completed' && 
-              new Date(task.timestamp).getTime() < twoHoursAgo) {
+              new Date(task.timestamp).getTime() < twentyFourHoursAgo) {
+            console.log(`清理超过24小时的已完成任务: ${taskId.substring(0, 16)}...`);
             this.deleteTask(taskId);
           }
         }
@@ -769,7 +902,7 @@ class BackgroundTaskManager {
     // Try gradual cleanup first based on pressure level
     if (this.memoryPressureLevel > 0) {
       console.log(`Memory pressure detected (level ${this.memoryPressureLevel}), performing gradual cleanup`);
-      this.performGradualCleanup();
+      await this.performGradualCleanup();
       
       // Re-evaluate after cleanup
       const newMemoryUsage = process.memoryUsage();
