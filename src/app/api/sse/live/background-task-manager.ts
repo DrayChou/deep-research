@@ -51,6 +51,26 @@ class BackgroundTaskManager {
   private isInitialized = false;
   private notificationService: NotificationService;
   
+  // 并发控制增强
+  private taskLocks: Map<string, Promise<void>> = new Map(); // 任务锁
+  private concurrentTasksLimit = 5; // 同时运行的最大任务数
+  private taskStartTimes: Map<string, number> = new Map(); // 任务开始时间
+  
+  // 智能内存管理
+  private taskAccessTimes: Map<string, number> = new Map(); // 任务最后访问时间
+  private taskAccessCount: Map<string, number> = new Map(); // 任务访问次数
+  private taskValueScore: Map<string, number> = new Map(); // 任务价值分数
+  
+  // 缓存性能监控
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    validationTime: 0,
+    averageValidationTime: 0,
+    totalRequests: 0,
+    lastResetTime: Date.now()
+  };
+  
   // Memory management
   private clientConnections: Map<string, number> = new Map();
   private maxConnectionsPerTask = 100;
@@ -201,16 +221,20 @@ class BackgroundTaskManager {
       this.performCleanup();
     }, 5 * 60 * 1000); // Every 5 minutes
     
-    // Log memory stats every minute in development
-    if (process.env.NODE_ENV === 'development') {
-      setInterval(() => {
-        const memUsage = process.memoryUsage();
-        this.updateMemoryPressureLevel(memUsage);
-        if (this.memoryPressureLevel > 0) {
-          console.log(`[Memory Monitor] Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB (Level: ${this.memoryPressureLevel})`);
-        }
-      }, 60 * 1000); // Every minute
-    }
+    // Log memory stats and performance reports
+    setInterval(() => {
+      const memUsage = process.memoryUsage();
+      this.updateMemoryPressureLevel(memUsage);
+      if (this.memoryPressureLevel > 0 || process.env.NODE_ENV === 'development') {
+        console.log(`[Memory Monitor] Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(this.maxMemoryUsage / 1024 / 1024)}MB (Level: ${this.memoryPressureLevel})`);
+      }
+      
+      // 每10分钟输出一次性能报告
+      const now = Date.now();
+      if (now - this.cacheStats.lastResetTime > 10 * 60 * 1000 && this.cacheStats.totalRequests > 0) {
+        this.logPerformanceReport();
+      }
+    }, 60 * 1000); // Every minute
   }
 
   private async performCleanup(): Promise<void> {
@@ -249,6 +273,12 @@ class BackgroundTaskManager {
         this.cleanupOrphanedConnections();
         await this.cleanupLargeOutputs();
       }
+      
+      // 清理过期的任务和锁（每次清理都执行）
+      this.cleanupExpiredTasks();
+      
+      // 清理统计数据
+      this.cleanupTaskStats();
 
       this.lastCleanupTime = now;
       
@@ -332,30 +362,376 @@ class BackgroundTaskManager {
   private cleanupOldTasks(): void {
     if (this.tasks.size <= this.maxTasks * 0.8) return;
 
-    const tasksToDelete: string[] = [];
-    const now = Date.now();
-    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+    // 使用智能清理策略
+    this.performIntelligentCleanup();
+  }
 
+  /**
+   * 智能清理策略：基于访问频率和价值分数进行清理
+   */
+  private performIntelligentCleanup(): void {
+    const now = Date.now();
+    const tasksToDelete: Array<{taskId: string, priority: number}> = [];
+    
     for (const [taskId, task] of this.tasks.entries()) {
-      const taskAge = now - new Date(task.timestamp).getTime();
-      if (taskAge > maxAge && task.status === 'completed') {
-        tasksToDelete.push(taskId);
+      // 跳过运行中的任务
+      if (task.status === 'running' || this.runningTasks.has(taskId)) continue;
+      
+      // 计算任务的清理优先级（数值越高越优先被清理）
+      const cleanupPriority = this.calculateCleanupPriority(taskId, task, now);
+      
+      if (cleanupPriority > 0) {
+        tasksToDelete.push({ taskId, priority: cleanupPriority });
       }
     }
 
-    // Delete oldest tasks first
-    tasksToDelete.sort((a, b) => {
-      const taskA = this.tasks.get(a);
-      const taskB = this.tasks.get(b);
-      if (!taskA || !taskB) return 0;
-      return new Date(taskA.timestamp).getTime() - new Date(taskB.timestamp).getTime();
-    });
+    // 按优先级排序（高优先级先删除）
+    tasksToDelete.sort((a, b) => b.priority - a.priority);
 
-    const deleteCount = Math.min(tasksToDelete.length, this.tasks.size - this.maxTasks * 0.8);
-    for (let i = 0; i < deleteCount; i++) {
-      const taskId = tasksToDelete[i];
+    const targetDeleteCount = this.tasks.size - Math.floor(this.maxTasks * 0.8);
+    const actualDeleteCount = Math.min(tasksToDelete.length, targetDeleteCount);
+    
+    for (let i = 0; i < actualDeleteCount; i++) {
+      const taskId = tasksToDelete[i].taskId;
+      console.log(`Smart cleanup: removing task ${taskId.substring(0, 16)}... (priority: ${tasksToDelete[i].priority.toFixed(2)})`);
       this.deleteTask(taskId);
     }
+
+    console.log(`Smart cleanup completed: removed ${actualDeleteCount} tasks based on usage patterns`);
+  }
+
+  /**
+   * 计算任务的清理优先级
+   * 返回值越高表示越应该被清理
+   */
+  private calculateCleanupPriority(taskId: string, task: TaskProgress, now: number): number {
+    // 基础参数
+    const taskAge = now - new Date(task.timestamp).getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    
+    // 获取访问统计
+    const lastAccess = this.taskAccessTimes.get(taskId) || new Date(task.timestamp).getTime();
+    const accessCount = this.taskAccessCount.get(taskId) || 0;
+    const valueScore = this.taskValueScore.get(taskId) || 0;
+    
+    // 时间因子：越老的任务优先级越高
+    const ageFactor = Math.log(1 + taskAge / oneDayMs); // 对数增长
+    
+    // 访问因子：越少被访问的任务优先级越高
+    const timeSinceAccess = now - lastAccess;
+    const accessFactor = Math.log(1 + timeSinceAccess / oneDayMs) / Math.log(2 + accessCount);
+    
+    // 价值因子：价值越低的任务优先级越高
+    const valueFactor = Math.max(0, 1 - valueScore / 100);
+    
+    // 状态因子：失败的任务更容易被清理
+    const statusFactor = task.status === 'failed' ? 2.0 : 
+                        task.status === 'completed' ? 1.0 : 0.1;
+    
+    // 综合优先级计算
+    const priority = (ageFactor * 0.3 + accessFactor * 0.4 + valueFactor * 0.2 + statusFactor * 0.1) * 100;
+    
+    // 设置最小阈值：超过7天且未访问的任务必须清理
+    const forceCleanup = taskAge > 7 * oneDayMs && timeSinceAccess > 3 * oneDayMs;
+    
+    return forceCleanup ? Math.max(priority, 1000) : priority;
+  }
+
+  /**
+   * 记录任务访问统计
+   */
+  private recordTaskAccess(taskId: string): void {
+    const now = Date.now();
+    this.taskAccessTimes.set(taskId, now);
+    
+    const currentCount = this.taskAccessCount.get(taskId) || 0;
+    this.taskAccessCount.set(taskId, currentCount + 1);
+    
+    // 计算价值分数：基于访问频率和时间分布
+    this.updateTaskValueScore(taskId);
+  }
+
+  /**
+   * 更新任务价值分数
+   */
+  private updateTaskValueScore(taskId: string): void {
+    const accessCount = this.taskAccessCount.get(taskId) || 0;
+    const lastAccess = this.taskAccessTimes.get(taskId) || Date.now();
+    const task = this.tasks.get(taskId);
+    
+    if (!task) return;
+    
+    const now = Date.now();
+    const taskAge = now - new Date(task.timestamp).getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    
+    // 基于多个因子计算价值分数
+    let valueScore = 0;
+    
+    // 访问频率分数（0-30分）
+    const accessFrequencyScore = Math.min(30, accessCount * 3);
+    
+    // 最近访问分数（0-25分）
+    const timeSinceAccess = now - lastAccess;
+    const recentAccessScore = Math.max(0, 25 - (timeSinceAccess / oneDayMs) * 5);
+    
+    // 内容完整性分数（0-25分）
+    const outputs = this.taskOutputs.get(taskId) || [];
+    const contentScore = task.status === 'completed' && outputs.length > 0 ? 25 : 0;
+    
+    // 任务类型分数（0-20分）
+    const typeScore = task.status === 'completed' ? 20 : 
+                     task.status === 'running' ? 15 : 0;
+    
+    valueScore = accessFrequencyScore + recentAccessScore + contentScore + typeScore;
+    
+    this.taskValueScore.set(taskId, Math.min(100, valueScore));
+  }
+
+  /**
+   * 清理过期的统计数据
+   */
+  private cleanupTaskStats(): void {
+    const now = Date.now();
+    const maxStatsAge = 30 * 24 * 60 * 60 * 1000; // 30天
+    
+    // 清理不存在任务的统计数据
+    for (const taskId of this.taskAccessTimes.keys()) {
+      if (!this.tasks.has(taskId)) {
+        this.taskAccessTimes.delete(taskId);
+        this.taskAccessCount.delete(taskId);
+        this.taskValueScore.delete(taskId);
+      }
+    }
+    
+    console.log('Task statistics cleaned up');
+  }
+
+  /**
+   * 记录缓存命中
+   */
+  private recordCacheHit(): void {
+    this.cacheStats.hits++;
+  }
+
+  /**
+   * 记录缓存未命中
+   */
+  private recordCacheMiss(): void {
+    this.cacheStats.misses++;
+  }
+
+  /**
+   * 更新验证时间统计
+   */
+  private updateValidationTimeStats(validationTime: number): void {
+    this.cacheStats.validationTime += validationTime;
+    this.cacheStats.averageValidationTime = this.cacheStats.validationTime / this.cacheStats.totalRequests;
+  }
+
+  /**
+   * 获取缓存性能统计
+   */
+  getCachePerformanceStats(): any {
+    const now = Date.now();
+    const timeSinceReset = now - this.cacheStats.lastResetTime;
+    const hoursAlive = timeSinceReset / (1000 * 60 * 60);
+    
+    const hitRate = this.cacheStats.totalRequests > 0 ? 
+      (this.cacheStats.hits / this.cacheStats.totalRequests) * 100 : 0;
+    
+    return {
+      // 基础统计
+      totalRequests: this.cacheStats.totalRequests,
+      cacheHits: this.cacheStats.hits,
+      cacheMisses: this.cacheStats.misses,
+      hitRate: `${hitRate.toFixed(2)}%`,
+      
+      // 性能统计
+      averageValidationTime: `${this.cacheStats.averageValidationTime.toFixed(2)}ms`,
+      totalValidationTime: `${this.cacheStats.validationTime.toFixed(2)}ms`,
+      
+      // 内存使用统计
+      tasksInMemory: this.tasks.size,
+      runningTasks: this.runningTasks.size,
+      availableSlots: this.concurrentTasksLimit - this.runningTasks.size,
+      
+      // 智能管理统计
+      taskStats: {
+        totalTracked: this.taskAccessTimes.size,
+        highValueTasks: Array.from(this.taskValueScore.entries())
+          .filter(([_, score]) => score > 80)
+          .length,
+        averageValueScore: this.calculateAverageValueScore()
+      },
+      
+      // 系统信息
+      uptime: `${hoursAlive.toFixed(2)} hours`,
+      memoryPressureLevel: this.memoryPressureLevel,
+      lastCleanup: new Date(this.lastCleanupTime).toISOString()
+    };
+  }
+
+  /**
+   * 计算平均价值分数
+   */
+  private calculateAverageValueScore(): number {
+    if (this.taskValueScore.size === 0) return 0;
+    
+    const totalScore = Array.from(this.taskValueScore.values())
+      .reduce((sum, score) => sum + score, 0);
+    
+    return totalScore / this.taskValueScore.size;
+  }
+
+  /**
+   * 重置缓存统计
+   */
+  resetCacheStats(): void {
+    this.cacheStats = {
+      hits: 0,
+      misses: 0,
+      validationTime: 0,
+      averageValidationTime: 0,
+      totalRequests: 0,
+      lastResetTime: Date.now()
+    };
+    console.log('Cache statistics reset');
+  }
+
+  /**
+   * 定期输出性能报告
+   */
+  private logPerformanceReport(): void {
+    const stats = this.getCachePerformanceStats();
+    
+    console.log('\n=== Background Task Manager Performance Report ===');
+    console.log(`Cache Hit Rate: ${stats.hitRate} (${stats.cacheHits}/${stats.totalRequests})`);
+    console.log(`Average Validation Time: ${stats.averageValidationTime}`);
+    console.log(`Tasks in Memory: ${stats.tasksInMemory}, Running: ${stats.runningTasks}`);
+    console.log(`High Value Tasks: ${stats.taskStats.highValueTasks}`);
+    console.log(`Memory Pressure: Level ${stats.memoryPressureLevel}`);
+    console.log('===============================================\n');
+    
+    // 预测性清理建议
+    this.analyzeAndSuggestCleanup(stats);
+  }
+
+  /**
+   * 预测性缓存清理分析
+   */
+  private analyzeAndSuggestCleanup(stats: any): void {
+    const suggestions: string[] = [];
+    
+    // 分析缓存命中率
+    const hitRate = parseFloat(stats.hitRate.replace('%', ''));
+    if (hitRate < 50 && stats.totalRequests > 20) {
+      suggestions.push('LOW_HIT_RATE: Consider reviewing task validation logic or caching strategy');
+    }
+    
+    // 分析内存使用
+    const memoryUsagePercent = this.memoryPressureLevel;
+    if (memoryUsagePercent > 2) {
+      suggestions.push('HIGH_MEMORY: Immediate aggressive cleanup recommended');
+    } else if (memoryUsagePercent > 1) {
+      suggestions.push('MODERATE_MEMORY: Proactive cleanup suggested');
+    }
+    
+    // 分析任务价值分布
+    const avgValueScore = stats.taskStats.averageValueScore;
+    if (avgValueScore < 40 && stats.tasksInMemory > 100) {
+      suggestions.push('LOW_VALUE_TASKS: Many tasks have low value scores, consider cleanup');
+    }
+    
+    // 预测未来内存需求
+    const memoryTrend = this.predictMemoryTrend();
+    if (memoryTrend > 0.8) {
+      suggestions.push('MEMORY_TREND: Memory usage trending upward, preemptive cleanup advised');
+    }
+    
+    if (suggestions.length > 0) {
+      console.log('🤖 Predictive Cleanup Suggestions:');
+      suggestions.forEach(suggestion => console.log(`   • ${suggestion}`));
+      
+      // 自动执行建议的清理
+      this.executeAutomaticCleanup(suggestions);
+    }
+  }
+
+  /**
+   * 预测内存使用趋势
+   */
+  private predictMemoryTrend(): number {
+    // 简单的线性趋势预测
+    const currentUsage = process.memoryUsage().heapUsed;
+    const maxUsage = this.maxMemoryUsage;
+    
+    // 基于当前任务增长率和内存使用率预测
+    const taskGrowthRate = this.tasks.size / Math.max(1, (Date.now() - this.cacheStats.lastResetTime) / (60 * 60 * 1000)); // tasks per hour
+    const projectedTasks = this.tasks.size + (taskGrowthRate * 2); // 2 hours ahead
+    const avgTaskMemory = this.tasks.size > 0 ? currentUsage / this.tasks.size : 0;
+    const projectedMemory = projectedTasks * avgTaskMemory;
+    
+    return Math.min(1, projectedMemory / maxUsage);
+  }
+
+  /**
+   * 执行自动清理建议
+   */
+  private executeAutomaticCleanup(suggestions: string[]): void {
+    let cleanupPerformed = false;
+    
+    for (const suggestion of suggestions) {
+      if (suggestion.startsWith('HIGH_MEMORY') || suggestion.startsWith('MEMORY_TREND')) {
+        console.log('🧹 Executing automatic aggressive cleanup due to memory concerns');
+        this.aggressiveCleanup();
+        cleanupPerformed = true;
+        break;
+      }
+    }
+    
+    if (!cleanupPerformed) {
+      for (const suggestion of suggestions) {
+        if (suggestion.startsWith('LOW_VALUE_TASKS') || suggestion.startsWith('MODERATE_MEMORY')) {
+          console.log('🧹 Executing automatic smart cleanup based on task value');
+          this.performIntelligentCleanup();
+          cleanupPerformed = true;
+          break;
+        }
+      }
+    }
+    
+    if (cleanupPerformed) {
+      console.log('✅ Automatic cleanup completed');
+    }
+  }
+
+  /**
+   * 智能预加载建议
+   */
+  private suggestPreloading(): string[] {
+    const suggestions: string[] = [];
+    
+    // 分析访问模式
+    const recentlyAccessedTasks = Array.from(this.taskAccessTimes.entries())
+      .filter(([_, accessTime]) => Date.now() - accessTime < 24 * 60 * 60 * 1000) // 24小时内
+      .sort((a, b) => b[1] - a[1]) // 按访问时间排序
+      .slice(0, 10); // 前10个
+    
+    if (recentlyAccessedTasks.length > 5) {
+      suggestions.push('FREQUENT_ACCESS: Consider implementing predictive preloading for frequently accessed tasks');
+    }
+    
+    // 分析查询模式
+    const highValueTasks = Array.from(this.taskValueScore.entries())
+      .filter(([_, score]) => score > 70)
+      .length;
+    
+    if (highValueTasks > 20) {
+      suggestions.push('HIGH_VALUE_CACHE: Large number of high-value tasks suggest good caching effectiveness');
+    }
+    
+    return suggestions;
   }
 
   private cleanupOrphanedConnections(): void {
@@ -406,29 +782,57 @@ class BackgroundTaskManager {
     }
     
     console.log('No userMessageId found, generating task ID from parameters');
+    
+    // 标准化参数格式，确保一致的TaskID生成
+    const normalizeModelString = (model: any): string => {
+      if (!model) return '';
+      if (typeof model === 'string') return model.trim();
+      if (Array.isArray(model)) return model.map(m => String(m).trim()).sort().join(',');
+      return String(model).trim();
+    };
+    
+    const normalizeBooleanParam = (param: any): boolean => {
+      if (typeof param === 'boolean') return param;
+      if (typeof param === 'string') return param.toLowerCase() !== 'false';
+      return Boolean(param);
+    };
+    
     const fingerprint = {
       query: (allParams.query || '').trim().toLowerCase(),
-      language: allParams.language || 'zh-CN',
+      language: (allParams.language || 'zh-CN').trim().toLowerCase(),
       maxResult: Number(allParams.maxResult) || 50,
-      enableCitationImage: allParams.enableCitationImage !== 'false',
-      enableReferences: allParams.enableReferences !== 'false',
-      aiProvider: allParams.aiProvider,
-      thinkingModel: allParams.thinkingModel,
-      taskModel: allParams.taskModel,
-      searchProvider: allParams.searchProvider,
-      userId: allParams.userId,
-      topicId: allParams.topicId,
-      mode: allParams.mode,
-      dataBaseUrl: allParams.dataBaseUrl,
+      enableCitationImage: normalizeBooleanParam(allParams.enableCitationImage),
+      enableReferences: normalizeBooleanParam(allParams.enableReferences),
+      aiProvider: (allParams.aiProvider || '').trim(),
+      thinkingModel: normalizeModelString(allParams.thinkingModel),
+      taskModel: normalizeModelString(allParams.taskModel),
+      searchProvider: (allParams.searchProvider || '').trim(),
+      userId: (allParams.userId || '').trim(),
+      topicId: (allParams.topicId || '').trim(),
+      mode: (allParams.mode || '').trim(),
+      dataBaseUrl: (allParams.dataBaseUrl || '').trim(),
     };
     
     const str = JSON.stringify(fingerprint, Object.keys(fingerprint).sort());
     const hash = crypto.createHash('sha256').update(str, 'utf8').digest('hex');
     
+    console.log(`Generated TaskID from fingerprint:`, {
+      fingerprintSize: str.length,
+      taskId: hash.substring(0, 16) + '...',
+      normalizedParams: {
+        thinkingModel: fingerprint.thinkingModel,
+        taskModel: fingerprint.taskModel,
+        query: fingerprint.query.substring(0, 50) + '...'
+      }
+    });
+    
     return hash.substring(0, 32);
   }
 
   async getTask(taskId: string): Promise<TaskProgress | null> {
+    // 记录任务访问
+    this.recordTaskAccess(taskId);
+    
     // 首先检查内存中的运行中任务
     const memoryTask = this.tasks.get(taskId);
     if (memoryTask && memoryTask.status === 'running') {
@@ -581,61 +985,175 @@ class BackgroundTaskManager {
   /**
    * 异步版本的任务验证 - 从数据库验证任务状态
    */
-  async getTaskValidationResult(taskId: string): Promise<'valid' | 'running' | 'invalid'> {
-    // 首先检查内存中的运行中任务
-    const memoryTask = this.tasks.get(taskId);
-    if (memoryTask && memoryTask.status === 'running') {
-      return 'running';
-    }
+  async getTaskValidationResult(taskId: string, forceRestart: boolean = false): Promise<'valid' | 'running' | 'invalid'> {
+    const startTime = performance.now();
+    this.cacheStats.totalRequests++;
     
-    // 从数据库检查已完成的任务
-    if (this.db) {
-      try {
-        const dbTask = await this.db.getTask(taskId);
-        if (!dbTask || !dbTask.progress) {
-          return 'invalid';
-        }
-        
-        // 检查任务是否正在运行
-        if (dbTask.progress.status === 'running') {
-          return 'running';
-        }
-        
-        // 检查任务是否已完成且有输出
-        // 处理数据库格式转换后的数据结构
-        let outputMessages: string[] = [];
-        
-        if (dbTask.outputs) {
-          if (Array.isArray(dbTask.outputs)) {
-            // 转换后的格式：outputs直接是string[]数组
-            outputMessages = dbTask.outputs;
-          } else if (dbTask.outputs.messages && Array.isArray(dbTask.outputs.messages)) {
-            // 原始数据库格式：outputs是{messages: string[]}对象
-            outputMessages = dbTask.outputs.messages;
-          }
-        }
-        
-        if (dbTask.progress.status === 'completed' && outputMessages.length > 0) {
-          // 检查是否包含有效的final-report内容
-          const allOutputContent = outputMessages.join('');
-          const hasStartTag = allOutputContent.includes('<final-report>');
-          const hasEndTag = allOutputContent.includes('</final-report>');
-          const hasSubstantialContent = allOutputContent.length > 1000;
-          const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
-          
-          if (hasValidFinalReport) {
-            return 'valid';
-          }
-        }
-        
+    try {
+      // 如果强制重新开始，直接返回invalid来触发新任务
+      if (forceRestart) {
+        console.log(`Task ${taskId}: Force restart requested`);
+        this.recordCacheMiss();
         return 'invalid';
-      } catch (error) {
-        console.error(`Error validating task ${taskId} from database:`, error);
+      }
+
+      // 首先检查内存中的运行中任务
+      const memoryTask = this.tasks.get(taskId);
+      if (memoryTask && memoryTask.status === 'running') {
+        this.recordCacheHit();
+        return 'running';
+      }
+      
+      // 从数据库检查已完成的任务
+      if (!this.db) {
+        console.log(`Task ${taskId}: Database not available, cannot validate`);
+        this.recordCacheMiss();
+        return 'invalid';
+      }
+      
+      const dbTask = await this.db.getTask(taskId);
+      if (!dbTask || !dbTask.progress) {
+        this.recordCacheMiss();
+        return 'invalid';
+      }
+      
+      // 检查任务是否正在运行
+      if (dbTask.progress.status === 'running') {
+        this.recordCacheHit();
+        return 'running';
+      }
+      
+      const result = this.validateTaskCompleteness(taskId, dbTask);
+      
+      // 记录缓存统计
+      if (result === 'valid') {
+        this.recordCacheHit();
+      } else {
+        this.recordCacheMiss();
+      }
+      
+      return result;
+      
+    } catch (error) {
+      console.error(`Error validating task ${taskId}:`, error);
+      this.recordCacheMiss();
+      return 'invalid';
+    } finally {
+      // 更新验证时间统计
+      const validationTime = performance.now() - startTime;
+      this.updateValidationTimeStats(validationTime);
+    }
+  }
+
+  /**
+   * 验证任务完整性的统一方法
+   */
+  private validateTaskCompleteness(taskId: string, dbTask: any): 'valid' | 'invalid' {
+    // 使用统一的数据格式转换
+    const outputMessages = this.normalizeTaskOutputs(dbTask.outputs);
+    
+    if (dbTask.progress.status === 'completed' && outputMessages.length > 0) {
+      // 检查是否包含有效的final-report内容
+      const allOutputContent = outputMessages.join('');
+      const hasStartTag = allOutputContent.includes('<final-report>');
+      const hasEndTag = allOutputContent.includes('</final-report>');
+      const hasSubstantialContent = allOutputContent.length > 1000;
+      const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
+      
+      if (hasValidFinalReport) {
+        console.log(`Task ${taskId}: Valid completed task found with final-report`);
+        return 'valid';
+      } else {
+        console.log(`Task ${taskId}: Completed task found but invalid final-report - tags: ${hasStartTag}/${hasEndTag}, length: ${allOutputContent.length}`);
         return 'invalid';
       }
     }
     
+    console.log(`Task ${taskId}: Task not completed or no outputs`, {
+      status: dbTask.progress.status,
+      outputCount: outputMessages.length
+    });
     return 'invalid';
+  }
+
+  /**
+   * 统一的数据输出格式转换方法
+   */
+  private normalizeTaskOutputs(outputs: any): string[] {
+    if (!outputs) return [];
+    
+    if (Array.isArray(outputs)) {
+      return outputs.map((item: any) => String(item));
+    }
+    
+    if (typeof outputs === 'object' && outputs.messages && Array.isArray(outputs.messages)) {
+      return outputs.messages.map((item: any) => String(item));
+    }
+    
+    if (typeof outputs === 'string') {
+      return [outputs];
+    }
+    
+    console.warn('Unexpected outputs format in BackgroundTaskManager', { outputsType: typeof outputs });
+    return [];
+  }
+
+  /**
+   * 获取任务锁（防止并发创建相同任务）
+   */
+  private async acquireTaskLock(taskId: string): Promise<void> {
+    const existingLock = this.taskLocks.get(taskId);
+    if (existingLock) {
+      // 等待现有的锁释放
+      await existingLock;
+    }
+    
+    // 创建新的锁
+    let releaseLock: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    
+    this.taskLocks.set(taskId, lockPromise);
+    
+    // 将释放函数绑定到锁对象上，以便后续调用
+    (lockPromise as any).release = releaseLock!;
+  }
+
+  /**
+   * 释放任务锁
+   */
+  private releaseTaskLock(taskId: string): void {
+    const lock = this.taskLocks.get(taskId);
+    if (lock && (lock as any).release) {
+      (lock as any).release();
+      this.taskLocks.delete(taskId);
+    }
+  }
+
+  /**
+   * 清理过期的任务锁和状态
+   */
+  private cleanupExpiredTasks(): void {
+    const now = Date.now();
+    const maxTaskTime = 30 * 60 * 1000; // 30分钟超时
+    
+    for (const [taskId, startTime] of this.taskStartTimes.entries()) {
+      if (now - startTime > maxTaskTime) {
+        console.warn(`Task ${taskId} exceeded maximum time limit, cleaning up`);
+        
+        // 清理相关状态
+        this.runningTasks.delete(taskId);
+        this.taskStartTimes.delete(taskId);
+        this.releaseTaskLock(taskId);
+        
+        // 更新任务状态为失败
+        this.updateTaskProgress(taskId, {
+          status: 'failed',
+          error: 'Task exceeded maximum execution time'
+        });
+      }
+    }
   }
 
   // Legacy V2 database methods removed - using PostgreSQL only
@@ -648,122 +1166,6 @@ class BackgroundTaskManager {
    * - 'invalid': 任务无效，需要归档重试
    */
 
-  /**
-   * 异步获取并验证任务状态
-   */
-  async getTaskValidationResultAsync(taskId: string, forceRestart: boolean = false): Promise<'valid' | 'running' | 'invalid'> {
-    try {
-      if (!this.db) {
-        console.log(`Task ${taskId}: Database not available, cannot validate`);
-        return 'invalid';
-      }
-
-      // 如果强制重新开始，直接返回invalid来触发新任务
-      if (forceRestart) {
-        console.log(`Task ${taskId}: Force restart requested`);
-        return 'invalid';
-      }
-      
-      // 使用异步数据库接口直接获取任务数据
-      let taskData: any = null;
-      
-      // 优先尝试预加载方法（如果存在）
-      if ('preloadTask' in this.db && typeof (this.db as any).preloadTask === 'function') {
-        console.log(`Task ${taskId}: Using async preload method`);
-        taskData = await (this.db as any).preloadTask(taskId);
-      } else if ('getTask' in this.db && typeof (this.db as any).getTask === 'function') {
-        // 尝试异步getTask方法（AsyncPostgreSQLTaskDatabase）
-        try {
-          console.log(`Task ${taskId}: Using async getTask method`);
-          taskData = await (this.db as any).getTask(taskId);
-        } catch {
-          console.log(`Task ${taskId}: Async getTask failed, trying sync method`);
-          taskData = this.db.getTask(taskId);
-        }
-      } else {
-        // 最后尝试同步方法
-        taskData = this.db.getTask(taskId);
-      }
-      
-      if (!taskData) {
-        console.log(`Task ${taskId}: Not found in database`);
-        return 'invalid';
-      }
-      
-      return this.validateTaskData(taskId, taskData);
-    } catch (error) {
-      console.error(`Task ${taskId}: Validation error:`, error);
-      return 'invalid';
-    }
-  }
-
-  /**
-   * 验证任务数据的有效性
-   */
-  private validateTaskData(taskId: string, taskData: any): 'valid' | 'running' | 'invalid' {
-    // Handle undefined progress with safe defaults
-    if (!taskData.progress) {
-      console.log(`Task ${taskId}: Progress data missing - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查任务是否正在运行
-    if (taskData.progress.status === 'running') {
-      console.log(`Task ${taskId}: Task is currently running, status: ${taskData.progress.status}, step: ${taskData.currentStep}`);
-      return 'running';
-    }
-    
-    // 检查任务是否已完成
-    if (taskData.progress.status !== 'completed') {
-      console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查是否到达了final-report步骤
-    if (taskData.currentStep !== 'final-report') {
-      console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查final-report步骤是否正常完成
-    if (taskData.stepStatus !== 'completed') {
-      console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查finishReason是否为正常的stop
-    if (taskData.finishReason !== 'stop') {
-      console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop' - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查是否标记为有效完成
-    if (!taskData.isValidComplete) {
-      console.log(`Task ${taskId}: Not marked as valid complete - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查输出内容是否存在且有效
-    if (!taskData.outputs || taskData.outputs.length === 0) {
-      console.log(`Task ${taskId}: No outputs found - marking as invalid`);
-      return 'invalid';
-    }
-    
-    // 检查是否包含有效的final-report内容
-    const allOutputContent = taskData.outputs.join('');
-    const hasStartTag = allOutputContent.includes('<final-report>');
-    const hasEndTag = allOutputContent.includes('</final-report>');
-    const hasSubstantialContent = allOutputContent.length > 1000; // 至少1000字符表示有实质内容
-    const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
-    
-    if (!hasValidFinalReport) {
-      console.log(`Task ${taskId}: Final report content invalid - start: ${hasStartTag}, end: ${hasEndTag}, length: ${allOutputContent.length}`);
-      return 'invalid';
-    }
-
-    console.log(`Task ${taskId}: Validation passed - task is valid for caching`);
-    return 'valid';
-  }
 
   // PostgreSQL数据库版本已删除 - 使用上面的简化内存缓存版本
 
@@ -891,8 +1293,33 @@ class BackgroundTaskManager {
     requestParams: any,
     externalOnMessage?: (event: string, data: any) => void  // 新增：外部回调支持
   ): Promise<void> {
-    if (this.runningTasks.has(taskId)) {
-      return;
+    // 增强的并发控制和原子性检查
+    await this.acquireTaskLock(taskId);
+    
+    try {
+      // 双重检查防止并发创建相同任务
+      if (this.runningTasks.has(taskId)) {
+        console.log(`Task ${taskId} already running, skipping duplicate start`);
+        return;
+      }
+      
+      // 检查并发任务数量限制
+      if (this.runningTasks.size >= this.concurrentTasksLimit) {
+        throw new Error(`Maximum concurrent tasks (${this.concurrentTasksLimit}) reached. Please wait for other tasks to complete.`);
+      }
+      
+      // 最后一次验证任务状态，防止重复执行已完成的任务
+      const validationResult = await this.getTaskValidationResult(taskId);
+      if (validationResult === 'valid') {
+        console.log(`Task ${taskId} is already valid, will not restart`);
+        return;
+      }
+      
+      this.taskStartTimes.set(taskId, Date.now());
+      console.log(`Starting background task ${taskId} (${this.runningTasks.size + 1}/${this.concurrentTasksLimit} slots)`);
+      
+    } finally {
+      this.releaseTaskLock(taskId);
     }
 
     // Smart memory management with gradual cleanup
@@ -1009,7 +1436,14 @@ class BackgroundTaskManager {
           timestamp: new Date().toISOString()
         });
         this.runningTasks.delete(taskId);
-        logger.getInstance('BackgroundTaskManager').info('Background task completed', { taskId });
+        this.taskStartTimes.delete(taskId);
+        this.releaseTaskLock(taskId);
+        
+        logger.getInstance('BackgroundTaskManager').info('Background task completed', { 
+          taskId, 
+          runningTasks: this.runningTasks.size,
+          availableSlots: this.concurrentTasksLimit - this.runningTasks.size
+        });
       })
       .catch(async (error: any) => {
         await this.updateTaskProgress(taskId, {
@@ -1018,7 +1452,14 @@ class BackgroundTaskManager {
           timestamp: new Date().toISOString()
         });
         this.runningTasks.delete(taskId);
-        logger.getInstance('BackgroundTaskManager').error('Background task failed', error, { taskId });
+        this.taskStartTimes.delete(taskId);
+        this.releaseTaskLock(taskId);
+        
+        logger.getInstance('BackgroundTaskManager').error('Background task failed', error, { 
+          taskId,
+          runningTasks: this.runningTasks.size,
+          availableSlots: this.concurrentTasksLimit - this.runningTasks.size
+        });
         
         // 检查是否为关键系统故障
         this.checkAndNotifyCriticalFailure(taskId, error, requestParams);
@@ -1098,6 +1539,8 @@ class BackgroundTaskManager {
     this.taskOutputs.delete(taskId);
     this.taskParams.delete(taskId);
     this.runningTasks.delete(taskId);
+    this.taskStartTimes.delete(taskId);
+    this.releaseTaskLock(taskId);
     this.clientConnections.delete(taskId);
     
     try {

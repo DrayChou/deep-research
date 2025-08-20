@@ -10,6 +10,69 @@ import { logger } from '@/utils/logger';
 
 const pgTaskLogger = logger.getInstance('PGTaskDatabase');
 
+/**
+ * 统一的数据格式转换工具
+ */
+class DataFormatConverter {
+  /**
+   * 统一转换输出格式：无论数据库存储的是数组还是对象，都转换为字符串数组
+   */
+  static normalizeOutputs(outputs: any): string[] {
+    if (!outputs) return [];
+    
+    if (Array.isArray(outputs)) {
+      // 已经是数组格式，直接返回
+      return outputs.map((item: any) => String(item));
+    }
+    
+    if (typeof outputs === 'object' && outputs.messages && Array.isArray(outputs.messages)) {
+      // 对象格式：{messages: string[]}
+      return outputs.messages.map((item: any) => String(item));
+    }
+    
+    // 其他格式，尝试转换为数组
+    if (typeof outputs === 'string') {
+      return [outputs];
+    }
+    
+    pgTaskLogger.warn('Unexpected outputs format', { outputs: typeof outputs });
+    return [];
+  }
+
+  /**
+   * 验证数据格式完整性
+   */
+  static validateTaskData(taskData: any): { valid: boolean; issues: string[] } {
+    const issues: string[] = [];
+    
+    if (!taskData) {
+      issues.push('Task data is null or undefined');
+      return { valid: false, issues };
+    }
+    
+    if (!taskData.progress) {
+      issues.push('Progress data is missing');
+    } else {
+      if (!taskData.progress.status) {
+        issues.push('Progress status is missing');
+      }
+      if (typeof taskData.progress.percentage !== 'number') {
+        issues.push('Progress percentage is invalid');
+      }
+    }
+    
+    const outputs = this.normalizeOutputs(taskData.outputs);
+    if (outputs.length === 0 && taskData.progress?.status === 'completed') {
+      issues.push('Completed task has no outputs');
+    }
+    
+    return {
+      valid: issues.length === 0,
+      issues
+    };
+  }
+}
+
 // 兼容现有的任务进度接口
 interface TaskProgress {
   step: string;
@@ -176,7 +239,7 @@ export class PostgreSQLTaskDatabase implements DatabaseInterface {
     return {
       taskId: pgTask.task_id,
       progress,
-      outputs: Array.isArray(pgTask.outputs) ? pgTask.outputs : (pgTask.outputs as any)?.messages || [],
+      outputs: DataFormatConverter.normalizeOutputs(pgTask.outputs),
       lastSaved: pgTask.last_saved.toISOString(),
       requestParams: pgTask.request_params as TaskRequestParams,
       createdAt: pgTask.created_at?.toISOString() || pgTask.last_saved.toISOString(),
@@ -601,7 +664,7 @@ export class AsyncPostgreSQLTaskDatabase implements AsyncDatabaseInterface {
     return {
       taskId: pgTask.task_id,
       progress,
-      outputs: Array.isArray(pgTask.outputs) ? pgTask.outputs : (pgTask.outputs as any)?.messages || [],
+      outputs: DataFormatConverter.normalizeOutputs(pgTask.outputs),
       lastSaved: pgTask.last_saved.toISOString(),
       requestParams: pgTask.request_params as TaskRequestParams,
       createdAt: pgTask.created_at?.toISOString() || pgTask.last_saved.toISOString(),

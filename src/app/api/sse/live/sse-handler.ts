@@ -73,7 +73,7 @@ export class SSELiveHandler {
     });
     
     if (!config.forceRestart) {
-      const validationResult = await this.taskManager.getTaskValidationResult(taskId);
+      const validationResult = await this.taskManager.getTaskValidationResult(taskId, config.forceRestart);
       this.requestLogger.info("✅ 缓存验证结果", { 
         taskId: taskId.substring(0, 16) + '...', 
         validationResult,
