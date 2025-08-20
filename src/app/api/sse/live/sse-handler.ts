@@ -58,8 +58,8 @@ export class SSELiveHandler {
     const taskId = this.generateTaskId(config);
     const existingTask = this.taskManager.getTask(taskId);
 
-    // Check task validation result
-    const validationResult = this.taskManager.getTaskValidationResult(taskId);
+    // Use async validation for better database access
+    const validationResult = await this.taskManager.getTaskValidationResultAsync(taskId, config.forceRestart);
     
     if (existingTask && validationResult === 'invalid') {
       // Task exists but is invalid (failed or has invalid finishReason)
@@ -67,11 +67,12 @@ export class SSELiveHandler {
         taskId,
         taskStatus: existingTask.status,
         validationResult,
-        reason: "Task is invalid or failed - needs restart" 
+        forceRestart: config.forceRestart,
+        reason: config.forceRestart ? "Force restart requested" : "Task is invalid or failed - needs restart" 
       });
       
       // Archive the invalid task for debugging
-      await this.taskManager.archiveInvalidTask(taskId, "Invalid task state - restarting");
+      await this.taskManager.archiveInvalidTask(taskId, config.forceRestart ? "Force restart requested" : "Invalid task state - restarting");
     } else if (existingTask && validationResult === 'running') {
       // Task is currently running, let it continue
       this.requestLogger.info("Found running task, connecting to existing stream", { 
@@ -125,6 +126,9 @@ export class SSELiveHandler {
       const maxResult = Number(getValueFromSearchParams("maxResult")) || 50;
       const enableCitationImage = getValueFromSearchParams("enableCitationImage") !== "false";
       const enableReferences = getValueFromSearchParams("enableReferences") !== "false";
+      
+      // Task control parameters
+      const forceRestart = getValueFromSearchParams("forceRestart") === "true" || getValueFromSearchParams("restart") === "true";
 
       // AI and Search provider configuration
       const aiConfig = getAIProviderConfig(authResult.config || {}, this.req);
@@ -213,6 +217,7 @@ export class SSELiveHandler {
         maxResult,
         enableCitationImage,
         enableReferences,
+        forceRestart,
         aiConfig,
         searchConfig,
         thinkingModel,

@@ -86,6 +86,9 @@ interface DatabaseInterface {
 export class PostgreSQLTaskDatabase implements DatabaseInterface {
   private pgAdapter: SimplePGAdapter;
   private currentRequest: NextRequest | null = null;
+  private taskCache: Map<string, TaskData> = new Map();
+  private cacheTimestamps: Map<string, number> = new Map();
+  private cacheTimeout: number = 5 * 60 * 1000; // 5分钟缓存
   
   constructor() {
     this.pgAdapter = SimplePGAdapter.getInstance();
@@ -264,46 +267,49 @@ export class PostgreSQLTaskDatabase implements DatabaseInterface {
   
   /**
    * 获取任务（同步接口）
+   * 使用简单缓存机制避免重复数据库查询
    */
   getTask(taskId: string): TaskData | null {
-    // 注意：这里必须使用同步方式，但PostgreSQL是异步的
-    // 临时解决方案：返回一个默认的任务对象以避免undefined错误
     try {
+      // 检查内存缓存
+      const cached = this.taskCache.get(taskId);
+      const cacheTime = this.cacheTimestamps.get(taskId);
       
-      // 返回一个默认的任务对象以避免undefined错误
-      const defaultTask: TaskData = {
-        taskId,
-        progress: {
-          step: 'unknown',
-          percentage: 0,
-          status: 'running',
-          messages: [],
-          timestamp: new Date().toISOString()
-        },
-        outputs: [],
-        lastSaved: new Date().toISOString(),
-        requestParams: {
-          query: '',
-          language: 'zh-CN',
-          aiProvider: 'openai',
-          thinkingModel: 'gpt-4',
-          taskModel: 'gpt-4',
-          searchProvider: 'tavily',
-          maxResult: 10,
-          enableCitationImage: false,
-          enableReferences: true
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        currentStep: 'unknown',
-        stepStatus: 'running',
-        finishReason: undefined,
-        isValidComplete: false
-      };
+      if (cached && cacheTime && (Date.now() - cacheTime) < this.cacheTimeout) {
+        pgTaskLogger.debug('Task retrieved from cache', { taskId });
+        return cached;
+      }
       
-      return defaultTask;
+      // 缓存过期或不存在，需要异步加载
+      // 同步接口限制：无法等待异步操作，返回null
+      pgTaskLogger.debug('Task cache miss, needs async loading', { taskId });
+      return null;
+      
     } catch (error) {
       pgTaskLogger.error('Failed to get task (sync)', error instanceof Error ? error : new Error(String(error)));
+      return null;
+    }
+  }
+  
+  /**
+   * 预加载任务到缓存（为同步接口准备数据）
+   */
+  async preloadTask(taskId: string): Promise<TaskData | null> {
+    try {
+      const pgTask = await this.pgAdapter.getTask(taskId);
+      if (!pgTask) return null;
+      
+      const taskData = this.convertFromPostgreSQLFormat(pgTask);
+      
+      // 更新缓存
+      this.taskCache.set(taskId, taskData);
+      this.cacheTimestamps.set(taskId, Date.now());
+      
+      pgTaskLogger.debug('Task loaded and cached', { taskId });
+      return taskData;
+      
+    } catch (error) {
+      pgTaskLogger.error('Failed to preload task', error instanceof Error ? error : new Error(String(error)));
       return null;
     }
   }

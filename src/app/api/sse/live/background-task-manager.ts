@@ -433,6 +433,123 @@ class BackgroundTaskManager {
    * - 'running': 任务正在运行中 
    * - 'invalid': 任务无效，需要归档重试
    */
+  /**
+   * 异步获取并验证任务状态
+   */
+  async getTaskValidationResultAsync(taskId: string, forceRestart: boolean = false): Promise<'valid' | 'running' | 'invalid'> {
+    try {
+      if (!this.db) {
+        console.log(`Task ${taskId}: Database not available, cannot validate`);
+        return 'invalid';
+      }
+
+      // 如果强制重新开始，直接返回invalid来触发新任务
+      if (forceRestart) {
+        console.log(`Task ${taskId}: Force restart requested`);
+        return 'invalid';
+      }
+      
+      // 使用异步数据库接口直接获取任务数据
+      let taskData: any = null;
+      
+      // 优先尝试预加载方法（如果存在）
+      if ('preloadTask' in this.db && typeof (this.db as any).preloadTask === 'function') {
+        console.log(`Task ${taskId}: Using async preload method`);
+        taskData = await (this.db as any).preloadTask(taskId);
+      } else if ('getTask' in this.db && typeof (this.db as any).getTask === 'function') {
+        // 尝试异步getTask方法（AsyncPostgreSQLTaskDatabase）
+        try {
+          console.log(`Task ${taskId}: Using async getTask method`);
+          taskData = await (this.db as any).getTask(taskId);
+        } catch {
+          console.log(`Task ${taskId}: Async getTask failed, trying sync method`);
+          taskData = this.db.getTask(taskId);
+        }
+      } else {
+        // 最后尝试同步方法
+        taskData = this.db.getTask(taskId);
+      }
+      
+      if (!taskData) {
+        console.log(`Task ${taskId}: Not found in database`);
+        return 'invalid';
+      }
+      
+      return this.validateTaskData(taskId, taskData);
+    } catch (error) {
+      console.error(`Task ${taskId}: Validation error:`, error);
+      return 'invalid';
+    }
+  }
+
+  /**
+   * 验证任务数据的有效性
+   */
+  private validateTaskData(taskId: string, taskData: any): 'valid' | 'running' | 'invalid' {
+    // Handle undefined progress with safe defaults
+    if (!taskData.progress) {
+      console.log(`Task ${taskId}: Progress data missing - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查任务是否正在运行
+    if (taskData.progress.status === 'running') {
+      console.log(`Task ${taskId}: Task is currently running, status: ${taskData.progress.status}, step: ${taskData.currentStep}`);
+      return 'running';
+    }
+    
+    // 检查任务是否已完成
+    if (taskData.progress.status !== 'completed') {
+      console.log(`Task ${taskId}: Status is ${taskData.progress.status}, not completed - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查是否到达了final-report步骤
+    if (taskData.currentStep !== 'final-report') {
+      console.log(`Task ${taskId}: Current step is ${taskData.currentStep}, not final-report - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查final-report步骤是否正常完成
+    if (taskData.stepStatus !== 'completed') {
+      console.log(`Task ${taskId}: Final report step status is ${taskData.stepStatus}, not completed - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查finishReason是否为正常的stop
+    if (taskData.finishReason !== 'stop') {
+      console.log(`Task ${taskId}: Finish reason is ${taskData.finishReason}, not 'stop' - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查是否标记为有效完成
+    if (!taskData.isValidComplete) {
+      console.log(`Task ${taskId}: Not marked as valid complete - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查输出内容是否存在且有效
+    if (!taskData.outputs || taskData.outputs.length === 0) {
+      console.log(`Task ${taskId}: No outputs found - marking as invalid`);
+      return 'invalid';
+    }
+    
+    // 检查是否包含有效的final-report内容
+    const allOutputContent = taskData.outputs.join('');
+    const hasStartTag = allOutputContent.includes('<final-report>');
+    const hasEndTag = allOutputContent.includes('</final-report>');
+    const hasSubstantialContent = allOutputContent.length > 1000; // 至少1000字符表示有实质内容
+    const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
+    
+    if (!hasValidFinalReport) {
+      console.log(`Task ${taskId}: Final report content invalid - start: ${hasStartTag}, end: ${hasEndTag}, length: ${allOutputContent.length}`);
+      return 'invalid';
+    }
+
+    console.log(`Task ${taskId}: Validation passed - task is valid for caching`);
+    return 'valid';
+  }
+
   getTaskValidationResult(taskId: string): 'valid' | 'running' | 'invalid' {
     
     try {
@@ -443,7 +560,7 @@ class BackgroundTaskManager {
       
       const taskData = this.db.getTask(taskId);
       if (!taskData) {
-        console.log(`Task ${taskId}: Not found in database`);
+        console.log(`Task ${taskId}: Not found in database (sync method)`);
         return 'invalid';
       }
       
@@ -711,10 +828,13 @@ class BackgroundTaskManager {
           statusData.isValidComplete = data.data.finishReason === 'stop';
         }
         
+        // 根据步骤和状态决定任务总体状态
+        const taskStatus = (data.step === 'final-report' && data.status === 'end') ? 'completed' : 'running';
+        
         await this.updateTaskProgress(taskId, {
           step: data.step,
           percentage,
-          status: 'running'
+          status: taskStatus
         });
         
         // 保存状态信息到数据库
