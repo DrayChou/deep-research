@@ -403,14 +403,32 @@ class SSEStreamHandler {
 
     const deepResearch = this.createDeepResearchInstance();
     
-    // Start background task
+    // Start background task with SSE callback
     this.taskManager.startBackgroundTask(
       this.taskId,
       deepResearch,
       this.config.query,
       this.config.enableCitationImage,
       this.config.enableReferences,
-      this.generateTaskParams()
+      this.generateTaskParams(),
+      (event, data) => {
+        // SSE流式输出回调
+        if (event === "message" && this.isClientConnected) {
+          this.controller.enqueue(this.encoder.encode(data.text));
+        } else if (event === "progress") {
+          this.requestLogger.debug(
+            `[${data.step}]: ${data.name ? `"${data.name}" ` : ""}${data.status}`
+          );
+          if (data.step === "final-report" && data.status === "end") {
+            this.controller.close();
+          }
+        } else if (event === "error") {
+          console.error(data);
+          if (this.isClientConnected) {
+            this.controller.close();
+          }
+        }
+      }
     );
 
     // Monitor output
@@ -486,23 +504,7 @@ class SSEStreamHandler {
         provider: this.config.searchConfig.searchProvider,
         maxResult: this.config.maxResult,
       },
-      onMessage: (event, data) => {
-        if (event === "message" && this.isClientConnected) {
-          this.controller.enqueue(this.encoder.encode(data.text));
-        } else if (event === "progress") {
-          this.requestLogger.debug(
-            `[${data.step}]: ${data.name ? `"${data.name}" ` : ""}${data.status}`
-          );
-          if (data.step === "final-report" && data.status === "end") {
-            this.controller.close();
-          }
-        } else if (event === "error") {
-          console.error(data);
-          if (this.isClientConnected) {
-            this.controller.close();
-          }
-        }
-      },
+      // onMessage将在startBackgroundTask中设置
     });
   }
 

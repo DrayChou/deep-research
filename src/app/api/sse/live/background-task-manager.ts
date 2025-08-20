@@ -755,7 +755,8 @@ class BackgroundTaskManager {
     query: string,
     enableCitationImage: boolean,
     enableReferences: boolean,
-    requestParams: any
+    requestParams: any,
+    externalOnMessage?: (event: string, data: any) => void  // 新增：外部回调支持
   ): Promise<void> {
     if (this.runningTasks.has(taskId)) {
       return;
@@ -800,7 +801,14 @@ class BackgroundTaskManager {
 
     this.taskOutputs.set(taskId, []);
 
+    // 创建统一的onMessage处理器，支持多个回调
     deepResearchInstance.onMessage = async (event: string, data: any) => {
+      // 1. 调用外部回调（SSE处理器）
+      if (externalOnMessage) {
+        externalOnMessage(event, data);
+      }
+      
+      // 2. 执行我们的数据库保存逻辑
       if (event === "message") {
         await this.addTaskOutput(taskId, data.text);
         await this.updateTaskProgress(taskId, {
