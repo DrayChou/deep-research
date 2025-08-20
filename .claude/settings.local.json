@@ -49,7 +49,8 @@
       "Bash(curl:*)",
       "Bash(docker ps:*)",
       "Bash(PORT=3002 pnpm run dev)",
-      "Bash(npx next dev:*)"
+      "Bash(npx next dev:*)",
+      "WebSearch"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

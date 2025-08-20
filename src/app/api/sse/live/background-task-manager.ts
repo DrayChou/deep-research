@@ -462,7 +462,7 @@ class BackgroundTaskManager {
     if (!task) return;
     
     const now = Date.now();
-    const taskAge = now - new Date(task.timestamp).getTime();
+    // const taskAge = now - new Date(task.timestamp).getTime(); // 保留以备将来使用
     const oneDayMs = 24 * 60 * 60 * 1000;
     
     // 基于多个因子计算价值分数
@@ -492,8 +492,8 @@ class BackgroundTaskManager {
    * 清理过期的统计数据
    */
   private cleanupTaskStats(): void {
-    const now = Date.now();
-    const maxStatsAge = 30 * 24 * 60 * 60 * 1000; // 30天
+    // const now = Date.now();
+    // const maxStatsAge = 30 * 24 * 60 * 60 * 1000; // 30天 - 保留以备将来使用
     
     // 清理不存在任务的统计数据
     for (const taskId of this.taskAccessTimes.keys()) {
@@ -560,7 +560,7 @@ class BackgroundTaskManager {
       taskStats: {
         totalTracked: this.taskAccessTimes.size,
         highValueTasks: Array.from(this.taskValueScore.entries())
-          .filter(([_, score]) => score > 80)
+          .filter(([, score]) => score > 80)
           .length,
         averageValueScore: this.calculateAverageValueScore()
       },
@@ -714,7 +714,7 @@ class BackgroundTaskManager {
     
     // 分析访问模式
     const recentlyAccessedTasks = Array.from(this.taskAccessTimes.entries())
-      .filter(([_, accessTime]) => Date.now() - accessTime < 24 * 60 * 60 * 1000) // 24小时内
+      .filter(([, accessTime]) => Date.now() - accessTime < 24 * 60 * 60 * 1000) // 24小时内
       .sort((a, b) => b[1] - a[1]) // 按访问时间排序
       .slice(0, 10); // 前10个
     
@@ -724,7 +724,7 @@ class BackgroundTaskManager {
     
     // 分析查询模式
     const highValueTasks = Array.from(this.taskValueScore.entries())
-      .filter(([_, score]) => score > 70)
+      .filter(([, score]) => score > 70)
       .length;
     
     if (highValueTasks > 20) {
