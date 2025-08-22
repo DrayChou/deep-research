@@ -730,8 +730,23 @@ export class AsyncPostgreSQLTaskDatabase implements AsyncDatabaseInterface {
   }
   
   async getAllTasks(): Promise<TaskData[]> {
-    // TODO: 实现获取所有任务的逻辑
-    return [];
+    try {
+      const pgTasks = await this.pgAdapter.getAllTasks();
+      const convertedTasks: TaskData[] = [];
+      
+      for (const pgTask of pgTasks) {
+        const converted = this.convertFromPostgreSQLFormat(pgTask);
+        if (converted) {
+          convertedTasks.push(converted);
+        }
+      }
+      
+      pgTaskLogger.debug(`Loaded ${convertedTasks.length} tasks from database`);
+      return convertedTasks;
+    } catch (error) {
+      pgTaskLogger.error('Failed to get all tasks', error instanceof Error ? error : new Error(String(error)));
+      return [];
+    }
   }
   
   async deleteTask(taskId: string): Promise<void> {

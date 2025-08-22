@@ -48,7 +48,9 @@ class BackgroundTaskManager {
   private taskParams: Map<string, any> = new Map();
   private storageDir: string;
   private db!: any; // 统一PostgreSQL数据库接口
-  private isInitialized = false;
+  public isInitialized = false;
+  private initializationPromise: Promise<void> | null = null; // 防止重复初始化
+  private taskSubscriptions?: Map<string, Set<(event: string, data: any) => void>>; // 任务订阅者
   private notificationService: NotificationService;
   
   // 并发控制增强
@@ -101,7 +103,6 @@ class BackgroundTaskManager {
       const health = await getDatabaseHealth();
       console.log('Database health check:', health);
       
-      this.isInitialized = true;
       console.log('✅ BackgroundTaskManager databases initialized successfully');
     } catch (error) {
       console.error('Failed to initialize BackgroundTaskManager database:', error);
@@ -168,17 +169,41 @@ class BackgroundTaskManager {
    * 完整初始化，包括数据库和任务加载
    */
   private async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return; // 已经初始化，直接返回
+    }
+    
+    // 如果正在初始化，等待现有的初始化完成
+    if (this.initializationPromise) {
+      console.log('Initialization already in progress, waiting...');
+      await this.initializationPromise;
+      return;
+    }
+    
+    // 开始新的初始化过程
+    this.initializationPromise = this.performInitialization();
+    await this.initializationPromise;
+    this.initializationPromise = null;
+  }
+  
+  private async performInitialization(): Promise<void> {
+    console.log('Starting BackgroundTaskManager initialization...');
+    
     await this.initializeDatabase();
     await this.loadTasksFromDatabase();
     this.startCleanupProcess();
+    
+    // 只有在所有初始化步骤完成后才设置为已初始化
+    this.isInitialized = true;
+    console.log('✅ BackgroundTaskManager fully initialized');
   }
 
   private async loadTasksFromDatabase(): Promise<void> {
     const context = createErrorContext('load-tasks-from-database');
     
     await withErrorRecovery(async () => {
-      if (!this.db || !this.isInitialized) {
-        console.log('Database not available or not initialized, skipping task loading');
+      if (!this.db) {
+        console.log('Database not available, skipping task loading');
         return;
       }
       
@@ -204,6 +229,8 @@ class BackgroundTaskManager {
             await this.updateTaskProgress(task.taskId, { status: 'paused' });
           }
         }
+        
+        
         console.log(`Successfully loaded ${this.tasks.size} tasks from database`);
       } catch (error) {
         console.error('Error loading tasks from database:', error);
@@ -775,13 +802,21 @@ class BackgroundTaskManager {
   }
 
   generateTaskId(allParams: Record<string, any>): string {
+    console.log('🔍 generateTaskId called with params:', {
+      userMessageId: allParams.userMessageId,
+      query: allParams.query?.substring(0, 50) + '...',
+      topicId: allParams.topicId,
+      userId: allParams.userId,
+      totalParams: Object.keys(allParams).length
+    });
+    
     const userMessageId = allParams.userMessageId;
     if (userMessageId && typeof userMessageId === 'string' && userMessageId.trim() !== '') {
-      console.log(`Using userMessageId as task ID: ${userMessageId}`);
+      console.log(`✅ Using userMessageId as task ID: ${userMessageId}`);
       return userMessageId.trim();
     }
     
-    console.log('No userMessageId found, generating task ID from parameters');
+    console.log('⚠️ No userMessageId found, generating task ID from parameters');
     
     // 标准化参数格式，确保一致的TaskID生成
     const normalizeModelString = (model: any): string => {
@@ -816,9 +851,10 @@ class BackgroundTaskManager {
     const str = JSON.stringify(fingerprint, Object.keys(fingerprint).sort());
     const hash = crypto.createHash('sha256').update(str, 'utf8').digest('hex');
     
-    console.log(`Generated TaskID from fingerprint:`, {
+    console.log(`🔐 Generated TaskID from fingerprint:`, {
       fingerprintSize: str.length,
       taskId: hash.substring(0, 16) + '...',
+      fullTaskId: hash,
       normalizedParams: {
         thinkingModel: fingerprint.thinkingModel,
         taskModel: fingerprint.taskModel,
@@ -830,12 +866,35 @@ class BackgroundTaskManager {
   }
 
   async getTask(taskId: string): Promise<TaskProgress | null> {
+    console.log(`🔍 getTask called for taskId: ${taskId}`);
+    
+    // 确保数据库已完全初始化
+    if (!this.isInitialized || !this.db) {
+      console.log(`getTask(${taskId}): Database not fully initialized, initializing...`);
+      await this.initialize();
+    }
+    
     // 记录任务访问
     this.recordTaskAccess(taskId);
     
+    // 显示当前内存中的所有任务
+    console.log(`📋 Current tasks in memory: ${this.tasks.size}`, 
+      Array.from(this.tasks.keys()).map(key => ({
+        taskId: key.substring(0, 16) + '...',
+        status: this.tasks.get(key)?.status
+      }))
+    );
+    
     // 首先检查内存中的运行中任务
     const memoryTask = this.tasks.get(taskId);
+    console.log(`🧠 Memory task check for ${taskId.substring(0, 16)}...`, {
+      found: !!memoryTask,
+      status: memoryTask?.status,
+      messagesCount: memoryTask?.messages?.length
+    });
+    
     if (memoryTask && memoryTask.status === 'running') {
+      console.log(`✅ Found running task in memory: ${taskId.substring(0, 16)}...`);
       return memoryTask;
     }
     
@@ -948,6 +1007,12 @@ class BackgroundTaskManager {
    * 获取任务输出 - 从数据库获取已完成任务的输出
    */
   async getTaskOutput(taskId: string): Promise<string[]> {
+    // 确保数据库已完全初始化
+    if (!this.isInitialized || !this.db) {
+      console.log(`getTaskOutput(${taskId}): Database not fully initialized, initializing...`);
+      await this.initialize();
+    }
+    
     // 优先从内存获取运行中任务的输出
     const memoryOutputs = this.taskOutputs.get(taskId);
     if (memoryOutputs) {
@@ -990,6 +1055,12 @@ class BackgroundTaskManager {
     this.cacheStats.totalRequests++;
     
     try {
+      // 确保数据库已完全初始化
+      if (!this.isInitialized || !this.db) {
+        console.log(`getTaskValidationResult(${taskId}): Database not fully initialized, initializing...`);
+        await this.initialize();
+      }
+      
       // 如果强制重新开始，直接返回invalid来触发新任务
       if (forceRestart) {
         console.log(`Task ${taskId}: Force restart requested`);
@@ -1057,8 +1128,9 @@ class BackgroundTaskManager {
       const allOutputContent = outputMessages.join('');
       const hasStartTag = allOutputContent.includes('<final-report>');
       const hasEndTag = allOutputContent.includes('</final-report>');
-      const hasSubstantialContent = allOutputContent.length > 1000;
+      const hasSubstantialContent = allOutputContent.length > 1000; // 恢复1000字要求
       const hasValidFinalReport = hasStartTag && hasEndTag && hasSubstantialContent;
+      
       
       if (hasValidFinalReport) {
         console.log(`Task ${taskId}: Valid completed task found with final-report`);
@@ -1097,6 +1169,7 @@ class BackgroundTaskManager {
     console.warn('Unexpected outputs format in BackgroundTaskManager', { outputsType: typeof outputs });
     return [];
   }
+
 
   /**
    * 获取任务锁（防止并发创建相同任务）
@@ -1293,13 +1366,18 @@ class BackgroundTaskManager {
     requestParams: any,
     externalOnMessage?: (event: string, data: any) => void  // 新增：外部回调支持
   ): Promise<void> {
+    console.log(`🚀 Starting background task: ${taskId}`);
+    console.log(`📊 Current running tasks: ${this.runningTasks.size}`, 
+      Array.from(this.runningTasks.keys()).map(key => key.substring(0, 16) + '...')
+    );
+    
     // 增强的并发控制和原子性检查
     await this.acquireTaskLock(taskId);
     
     try {
       // 双重检查防止并发创建相同任务
       if (this.runningTasks.has(taskId)) {
-        console.log(`Task ${taskId} already running, skipping duplicate start`);
+        console.log(`⚠️ Task ${taskId.substring(0, 16)}... already running, skipping duplicate start`);
         return;
       }
       
@@ -1351,12 +1429,19 @@ class BackgroundTaskManager {
 
     this.taskParams.set(taskId, requestParams);
 
-    this.tasks.set(taskId, {
+    const initialTask: TaskProgress = {
       step: 'initializing',
       percentage: 0,
-      status: 'running',
+      status: 'running' as const,
       messages: [],
       timestamp: new Date().toISOString()
+    };
+    
+    this.tasks.set(taskId, initialTask);
+    console.log(`💾 Set task in memory: ${taskId.substring(0, 16)}...`, {
+      status: initialTask.status,
+      step: initialTask.step,
+      totalTasksInMemory: this.tasks.size
     });
 
     this.taskOutputs.set(taskId, []);
@@ -1368,7 +1453,10 @@ class BackgroundTaskManager {
         externalOnMessage(event, data);
       }
       
-      // 2. 执行我们的数据库保存逻辑
+      // 2. 通知任务订阅者
+      this.notifyTaskSubscribers(taskId, event, data);
+      
+      // 3. 执行我们的数据库保存逻辑
       if (event === "message") {
         await this.addTaskOutput(taskId, data.text);
         await this.updateTaskProgress(taskId, {
@@ -1760,6 +1848,91 @@ class BackgroundTaskManager {
 - 验证API密钥和配额
 - 检查系统资源使用情况
 - 查看详细错误日志定位问题`;
+  }
+  
+  /**
+   * 获取内存中的任务数量（调试用）
+   */
+  getMemoryTaskCount(): number {
+    return this.tasks.size;
+  }
+  
+  /**
+   * 获取运行中任务数量（调试用）
+   */
+  getRunningTaskCount(): number {
+    return this.runningTasks.size;
+  }
+  
+  /**
+   * 调试：显示所有内存任务
+   */
+  debugShowAllTasks(): void {
+    console.log(`🔍 All tasks in memory (${this.tasks.size}):`, 
+      Array.from(this.tasks.entries()).map(([taskId, task]) => ({
+        taskId: taskId.substring(0, 16) + '...',
+        status: task.status,
+        step: task.step,
+        messagesCount: task.messages?.length || 0
+      }))
+    );
+    
+    console.log(`🚀 All running tasks (${this.runningTasks.size}):`, 
+      Array.from(this.runningTasks.keys()).map(key => key.substring(0, 16) + '...')
+    );
+  }
+  
+  /**
+   * 订阅任务的实时更新
+   */
+  subscribeToTask(taskId: string, callback: (event: string, data: any) => void): (() => void) | null {
+    // 检查任务是否存在且正在运行
+    const task = this.tasks.get(taskId);
+    if (!task || task.status !== 'running') {
+      console.log(`Cannot subscribe to task ${taskId.substring(0, 16)}...: task not running`);
+      return null;
+    }
+    
+    // 创建任务订阅映射（如果不存在）
+    if (!this.taskSubscriptions) {
+      this.taskSubscriptions = new Map();
+    }
+    
+    let subscribers = this.taskSubscriptions.get(taskId);
+    if (!subscribers) {
+      subscribers = new Set();
+      this.taskSubscriptions.set(taskId, subscribers);
+    }
+    
+    // 添加订阅者
+    subscribers.add(callback);
+    console.log(`Subscribed to task ${taskId.substring(0, 16)}..., total subscribers: ${subscribers.size}`);
+    
+    // 返回取消订阅函数
+    return () => {
+      subscribers?.delete(callback);
+      if (subscribers?.size === 0) {
+        this.taskSubscriptions?.delete(taskId);
+      }
+      console.log(`Unsubscribed from task ${taskId.substring(0, 16)}...`);
+    };
+  }
+  
+  /**
+   * 通知任务订阅者
+   */
+  private notifyTaskSubscribers(taskId: string, event: string, data: any): void {
+    const subscribers = this.taskSubscriptions?.get(taskId);
+    if (subscribers && subscribers.size > 0) {
+      console.log(`Notifying ${subscribers.size} subscribers for task ${taskId.substring(0, 16)}...`);
+      subscribers.forEach(callback => {
+        try {
+          callback(event, data);
+        } catch (error) {
+          console.error('Error in task subscriber callback:', error);
+        }
+      });
+    }
   }
 }
 

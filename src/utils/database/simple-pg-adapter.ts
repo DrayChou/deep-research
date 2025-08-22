@@ -1019,6 +1019,80 @@ export class SimplePGAdapter {
   }
   
   /**
+   * 获取所有任务
+   */
+  async getAllTasks(): Promise<TaskData[]> {
+    await this.ensureConnection();
+    
+    if (!this.pool) {
+      throw new Error('Database connection not available');
+    }
+    
+    const client = await this.pool.connect();
+    
+    try {
+      const result = await client.query(`
+        SELECT * FROM deep_research.tasks 
+        WHERE is_deleted = FALSE
+        ORDER BY created_at DESC
+        LIMIT 1000
+      `);
+      
+      const tasks: TaskData[] = [];
+      
+      for (const row of result.rows) {
+        tasks.push({
+          id: row.id,
+          task_id: row.task_id,
+          client_environment: row.client_environment,
+          client_user_id: row.client_user_id,
+          client_username: row.client_username,
+          client_data_base_url: row.client_data_base_url,
+          client_jwt_hash: row.client_jwt_hash,
+          client_source: row.client_source,
+          client_mode: row.client_mode,
+          current_step: row.current_step,
+          step_status: row.step_status,
+          finish_reason: row.finish_reason,
+          is_valid_complete: row.is_valid_complete,
+          retry_count: row.retry_count,
+          processing_time: row.processing_time,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          last_saved: row.last_saved,
+          last_step_completed_at: row.last_step_completed_at,
+          progress: row.progress,
+          outputs: row.outputs,
+          request_params: row.request_params,
+          model_config: row.model_config,
+          error_message: row.error_message,
+          user_agent: row.user_agent,
+          ip_address: row.ip_address,
+          is_deleted: row.is_deleted,
+          version: row.version,
+          browser_name: row.browser_name,
+          browser_version: row.browser_version,
+          os_name: row.os_name,
+          os_version: row.os_version,
+          device_type: row.device_type,
+          cpu_cores: row.cpu_cores,
+          memory_size: row.memory_size,
+          screen_resolution: row.screen_resolution,
+          timezone: row.timezone,
+          language: row.language,
+          platform: row.platform,
+          cpu_architecture: row.cpu_architecture
+        });
+      }
+      
+      return tasks;
+      
+    } finally {
+      client.release();
+    }
+  }
+  
+  /**
    * 更新任务状态
    */
   async updateTaskStatus(taskId: string, statusData: TaskStatus): Promise<void> {

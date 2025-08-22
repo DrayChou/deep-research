@@ -64,6 +64,17 @@ export class SSELiveHandler {
       taskManagerInitialized: !!this.taskManager
     });
     
+    // 调试：显示TaskManager实例信息
+    console.log(`🏭 TaskManager instance info:`, {
+      instanceExists: !!this.taskManager,
+      isInitialized: this.taskManager?.isInitialized,
+      totalTasksInMemory: this.taskManager?.getMemoryTaskCount?.() || 0,
+      runningTasks: this.taskManager?.getRunningTaskCount?.() || 0
+    });
+    
+    // 显示所有内存中的任务
+    this.taskManager?.debugShowAllTasks?.();
+    
     const existingTask = await this.taskManager.getTask(taskId);
     this.requestLogger.info("📋 现有任务检查", { 
       taskId: taskId.substring(0, 16) + '...', 
@@ -80,20 +91,32 @@ export class SSELiveHandler {
         existingTask: !!existingTask
       });
       
-      if (existingTask && validationResult === 'valid') {
-        this.requestLogger.info("🎯 Cache hit - returning cached result", { 
-          taskId: taskId.substring(0, 16) + '...', 
-          validationResult,
-          taskStatus: existingTask.status 
-        });
-        
-        const outputs = await this.taskManager.getTaskOutput(taskId);
-        this.requestLogger.info("📤 获取缓存输出", { 
-          taskId: taskId.substring(0, 16) + '...', 
-          outputCount: outputs.length
-        });
-        const cacheStream = this.createCacheStream(outputs);
-        return this.createSSEResponse(cacheStream, config);
+      if (existingTask && (validationResult === 'valid' || validationResult === 'running')) {
+        if (validationResult === 'valid') {
+          this.requestLogger.info("🎯 Cache hit - returning cached result", { 
+            taskId: taskId.substring(0, 16) + '...', 
+            validationResult,
+            taskStatus: existingTask.status 
+          });
+          
+          const outputs = await this.taskManager.getTaskOutput(taskId);
+          this.requestLogger.info("📤 获取缓存输出", { 
+            taskId: taskId.substring(0, 16) + '...', 
+            outputCount: outputs.length
+          });
+          const cacheStream = this.createCacheStream(outputs);
+          return this.createSSEResponse(cacheStream, config);
+        } else if (validationResult === 'running') {
+          this.requestLogger.info("🔄 Found running task - connecting to live stream", { 
+            taskId: taskId.substring(0, 16) + '...', 
+            taskStatus: existingTask.status,
+            currentStep: existingTask.step
+          });
+          
+          // 创建运行中任务的实时流
+          const liveStream = this.createRunningTaskStream(taskId);
+          return this.createSSEResponse(liveStream, config);
+        }
       }
       
       if (existingTask && validationResult === 'invalid') {
@@ -329,10 +352,25 @@ export class SSELiveHandler {
           });
 
           // 定义外部回调，用于实时流式传输
+          let controllerClosed = false;
           const externalOnMessage = (event: string, data: any) => {
+            if (controllerClosed) {
+              // 控制器已关闭，忽略后续消息
+              return;
+            }
+            
             if (event === "message") {
               // 实时传输消息到客户端
-              controller.enqueue(encoder.encode(data.text));
+              try {
+                controller.enqueue(encoder.encode(data.text));
+              } catch (error) {
+                if (error instanceof Error && error.message.includes('Controller is already closed')) {
+                  controllerClosed = true;
+                  this.requestLogger.debug('Controller already closed, ignoring message');
+                } else {
+                  throw error;
+                }
+              }
             } else if (event === "progress") {
               this.requestLogger.debug(`[${data.step}]: ${data.status}`);
               if (data.step === "final-report" && data.status === "end") {
@@ -340,11 +378,17 @@ export class SSELiveHandler {
                 this.requestLogger.info("💾 后台任务完成，关闭客户端流", { 
                   taskId: taskId.substring(0, 16) + '...'
                 });
-                controller.close();
+                if (!controllerClosed) {
+                  controller.close();
+                  controllerClosed = true;
+                }
               }
             } else if (event === "error") {
               this.requestLogger.error('Background task failed', data);
-              controller.close();
+              if (!controllerClosed) {
+                controller.close();
+                controllerClosed = true;
+              }
             }
           };
 
@@ -367,6 +411,53 @@ export class SSELiveHandler {
     });
   }
 
+
+  /**
+   * 创建运行中任务的实时流
+   */
+  private createRunningTaskStream(taskId: string): ReadableStream {
+    const encoder = new TextEncoder();
+    
+    return new ReadableStream({
+      start: async (controller) => {
+        try {
+          // 首先发送已有的输出
+          const existingOutputs = await this.taskManager.getTaskOutput(taskId);
+          for (const output of existingOutputs) {
+            controller.enqueue(encoder.encode(output));
+          }
+          
+          // 然后注册实时输出监听器
+          const unsubscribe = this.taskManager.subscribeToTask(taskId, (event: string, data: any) => {
+            try {
+              if (event === "message" && data.text) {
+                controller.enqueue(encoder.encode(data.text));
+              } else if (event === "progress" && data.step === "final-report" && data.status === "end") {
+                // 任务完成，关闭流
+                controller.close();
+                if (unsubscribe) unsubscribe();
+              }
+            } catch (error) {
+              console.error('Error in running task stream:', error);
+              controller.close();
+              if (unsubscribe) unsubscribe();
+            }
+          });
+          
+          // 检查任务是否已经完成（防止竞争条件）
+          const currentTask = await this.taskManager.getTask(taskId);
+          if (!currentTask || currentTask.status === 'completed' || currentTask.status === 'failed') {
+            controller.close();
+            if (unsubscribe) unsubscribe();
+          }
+          
+        } catch (error) {
+          this.requestLogger.error('Error creating running task stream', error instanceof Error ? error : new Error(String(error)));
+          controller.close();
+        }
+      }
+    });
+  }
 
   /**
    * 创建缓存流式输出

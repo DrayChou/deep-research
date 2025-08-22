@@ -471,24 +471,55 @@ class DeepResearch {
             
           } catch (err) {
             lastError = err instanceof Error ? err : new Error("Search Failed");
+            
+            // 标记当前API key失败并添加到黑名单
+            if (currentApiKey && NotificationService.isApiCreditError(lastError.message)) {
+              try {
+                const { markApiKeyFailed } = await import("@/utils/model");
+                // 从错误消息中提取状态码，默认为0
+                let statusCode = 0;
+                const statusMatch = lastError.message.match(/\b(\d{3})\b/);
+                if (statusMatch) {
+                  statusCode = parseInt(statusMatch[1], 10);
+                }
+                
+                markApiKeyFailed(currentApiKey, statusCode);
+                this.logger.warn(`搜索API key失败，已加入黑名单`, {
+                  keyPrefix: currentApiKey.substring(0, 8) + '...',
+                  statusCode,
+                  provider: this.options.searchProvider.provider,
+                  error: lastError.message.substring(0, 100)
+                });
+              } catch (markError) {
+                this.logger.warn('标记API key失败时出错', markError);
+              }
+            }
+            
             currentRetry++;
             
             this.logger.warn(`搜索失败，重试 ${currentRetry}/${maxRetries}`, {
               query: item.query.substring(0, 50) + '...',
               error: lastError.message,
-              provider: this.options.searchProvider.provider
+              provider: this.options.searchProvider.provider,
+              currentApiKey: currentApiKey ? currentApiKey.substring(0, 8) + '...' : 'unknown'
             });
             
-            // 如果是最后一次重试，抛出错误
+            // 如果是最后一次重试，处理搜索API失败并抛出错误
             if (currentRetry >= maxRetries) {
+              // 检查是否为搜索API欠费错误，并进行相应处理
+              await this.handleSearchApiCreditError(lastError, provider);
+              
               const errorMessage = `[${provider}]: 所有搜索重试均失败 - ${lastError.message}`;
               throw new Error(errorMessage);
             }
           }
         }
         
-        // 如果重试循环结束但没有成功，抛出最后的错误
+        // 如果重试循环结束但没有成功，处理搜索API失败
         if (lastError && (sources.length === 0 && images.length === 0)) {
+          // 检查是否为搜索API欠费错误，并进行相应处理
+          await this.handleSearchApiCreditError(lastError, provider);
+          
           const errorMessage = `[${provider}]: 搜索重试耗尽 - ${lastError.message}`;
           throw new Error(errorMessage);
         }
@@ -733,6 +764,57 @@ class DeepResearch {
 
     // 注意：由于是异步非阻塞，这里不再等待结果或记录成功日志
     // 成功或失败的日志会在 NotificationService 内部处理
+  }
+
+  // 处理搜索API欠费错误，加入黑名单机制，只在所有API都不可用时发送通知
+  private async handleSearchApiCreditError(error: Error, searchProvider: string): Promise<boolean> {
+    if (!NotificationService.isApiCreditError(error.message)) {
+      return false; // 不是欠费错误
+    }
+
+    try {
+      // 检查是否还有可用的搜索API key
+      const originalApiKeys = this.options.searchProvider.apiKey;
+      if (!originalApiKeys) {
+        return true; // 没有API key，直接认为所有都不可用
+      }
+
+      const { multiApiKeyPolling } = await import("@/utils/model");
+      const allKeys = originalApiKeys.split(',').map(k => k.trim()).filter(k => k);
+      
+      // 尝试获取下一个可用的API key
+      const nextKey = multiApiKeyPolling(originalApiKeys);
+      
+      if (!nextKey || allKeys.length <= 1) {
+        // 没有更多可用的key，发送紧急通知
+        this.logger.error('所有搜索API服务都不可用', error);
+        
+        this.notificationService.sendSearchApiAllFailedAlertAsync(
+          [searchProvider],
+          error.message,
+          {
+            operation: 'search',
+            timestamp: new Date().toISOString(),
+            totalKeys: allKeys.length,
+            searchProvider
+          }
+        );
+        
+        return true; // 所有API都不可用
+      } else {
+        // 还有可用的key，只记录日志，不发送通知
+        this.logger.warn('搜索API key失败，但还有其他可用的key', {
+          provider: searchProvider,
+          remainingKeys: allKeys.length - 1,
+          error: error.message.substring(0, 100)
+        });
+        
+        return false; // 还有可用的API
+      }
+    } catch (checkError) {
+      this.logger.warn('检查搜索API可用性时出错', checkError);
+      return true; // 出错时谨慎处理，认为不可用
+    }
   }
 
   // 发送关键系统故障警报

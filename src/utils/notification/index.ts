@@ -196,6 +196,97 @@ ${error}`,
   }
 
   /**
+   * 发送搜索API欠费通知的便捷方法（阻塞式）
+   */
+  async sendSearchApiCreditAlert(provider: string, error: string, additionalInfo?: Record<string, any>): Promise<NotificationResult[]> {
+    const message: NotificationMessage = {
+      title: `🔍 搜索API余额不足警告 - ${provider}`,
+      content: `搜索API提供商 ${provider} 余额不足，已自动切换到其他可用的搜索服务。
+
+错误详情：
+${error}`,
+      level: 'critical',
+      source: 'Deep Research Search Monitor',
+      tags: ['search-api-credit', 'urgent', provider.toLowerCase()],
+      extra: {
+        provider,
+        error,
+        detectedAt: new Date().toISOString(),
+        apiType: 'search',
+        ...additionalInfo
+      }
+    };
+
+    return this.send(message);
+  }
+
+  /**
+   * 异步非阻塞发送搜索API欠费通知的便捷方法（推荐使用）
+   */
+  sendSearchApiCreditAlertAsync(provider: string, error: string, additionalInfo?: Record<string, any>): void {
+    // 浏览器环境下直接返回
+    if (this.isBrowserEnvironment) {
+      return;
+    }
+    
+    const message: NotificationMessage = {
+      title: `🔍 搜索API余额不足警告 - ${provider}`,
+      content: `搜索API提供商 ${provider} 余额不足，已自动切换到其他可用的搜索服务。
+
+错误详情：
+${error}`,
+      level: 'critical',
+      source: 'Deep Research Search Monitor',
+      tags: ['search-api-credit', 'urgent', provider.toLowerCase()],
+      extra: {
+        provider,
+        error,
+        detectedAt: new Date().toISOString(),
+        apiType: 'search',
+        ...additionalInfo
+      }
+    };
+
+    this.sendAsync(message);
+  }
+
+  /**
+   * 发送搜索API全部不可用的紧急通知
+   */
+  sendSearchApiAllFailedAlertAsync(providers: string[], lastError: string, additionalInfo?: Record<string, any>): void {
+    // 浏览器环境下直接返回
+    if (this.isBrowserEnvironment) {
+      return;
+    }
+    
+    const message: NotificationMessage = {
+      title: `🚨 所有搜索API服务不可用`,
+      content: `所有配置的搜索API服务 (${providers.join(', ')}) 都已不可用，无法继续进行网络搜索。
+
+请检查以下事项：
+1. 各搜索API的余额是否充足
+2. API密钥是否正确
+3. 网络连接是否正常
+
+最后错误：
+${lastError}`,
+      level: 'critical',
+      source: 'Deep Research Search Monitor',
+      tags: ['search-api-critical', 'urgent', 'all-failed'],
+      extra: {
+        providers,
+        lastError,
+        detectedAt: new Date().toISOString(),
+        apiType: 'search',
+        totalProviders: providers.length,
+        ...additionalInfo
+      }
+    };
+
+    this.sendAsync(message);
+  }
+
+  /**
    * 检测API错误是否为欠费问题
    */
   static isApiCreditError(error: string): boolean {
